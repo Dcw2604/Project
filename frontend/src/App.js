@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Book, Calendar, MessageCircle, FileText, Users, Clock, CheckCircle, X } from 'lucide-react';
+import './styles/tailwind.css';
 
 // Main App Component
 const App = () => {
@@ -25,9 +26,23 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {renderCurrentPage()}
-    </div>
+    <>
+      <div className="bg-red-500 text-white p-4 text-center font-bold">If you see a red box, Tailwind CSS is working!</div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-200 via-indigo-100 to-purple-100 flex flex-col">
+        <header className="sticky top-0 z-10 bg-white bg-opacity-80 shadow-lg backdrop-blur-md py-4 px-8 flex items-center justify-between">
+          <h1 className="text-3xl font-extrabold text-indigo-700 tracking-tight">EduConnect</h1>
+          <nav className="space-x-6">
+            <button className="text-indigo-600 hover:text-indigo-900 font-semibold transition-colors" onClick={() => setCurrentPage('landing')}>Home</button>
+          </nav>
+        </header>
+        <main className="flex-1 flex flex-col items-center justify-center">
+          {renderCurrentPage()}
+        </main>
+        <footer className="bg-white bg-opacity-80 shadow-inner py-4 px-8 text-center text-gray-500 text-sm">
+          © 2025 EduConnect. All rights reserved.
+        </footer>
+      </div>
+    </>
   );
 };
 
@@ -42,22 +57,21 @@ const LandingPage = ({ setCurrentPage, setUserType }) => {
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-4xl w-full">
         <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold text-gray-800 mb-4">EduConnect</h1>
-          <p className="text-xl text-gray-600">Connect, Learn, and Grow Together</p>
+          <h1 className="text-5xl font-extrabold text-indigo-700 mb-4 font-display drop-shadow-lg">EduConnect</h1>
+          <p className="text-xl text-gray-700">Connect, Learn, and Grow Together</p>
         </div>
-        
         <div className="grid md:grid-cols-2 gap-8 max-w-2xl mx-auto">
           <div 
             onClick={() => handleUserTypeSelection('student')}
-            className="bg-white rounded-xl shadow-lg p-8 cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+            className="bg-white rounded-2xl shadow-2xl p-10 cursor-pointer hover:shadow-indigo-200 transition-all duration-300 transform hover:scale-105 border-2 border-indigo-100 hover:border-indigo-300"
           >
             <div className="text-center">
-              <div className="bg-blue-100 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                <User className="w-8 h-8 text-blue-600" />
+              <div className="bg-gradient-to-br from-blue-200 to-indigo-200 rounded-full p-5 w-20 h-20 mx-auto mb-4 flex items-center justify-center shadow-md">
+                <User className="w-10 h-10 text-indigo-600" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Student Portal</h2>
+              <h2 className="text-2xl font-bold text-indigo-700 mb-2">Student Portal</h2>
               <p className="text-gray-600 mb-4">Access classes, take tests, and chat with AI tutors</p>
-              <ul className="text-sm text-gray-500 space-y-1">
+              <ul className="text-sm text-gray-500 space-y-1 text-left mx-auto max-w-xs">
                 <li>• Schedule classes with teachers</li>
                 <li>• Take level assessment tests</li>
                 <li>• AI chatbot assistance</li>
@@ -65,18 +79,17 @@ const LandingPage = ({ setCurrentPage, setUserType }) => {
               </ul>
             </div>
           </div>
-
           <div 
             onClick={() => handleUserTypeSelection('teacher')}
-            className="bg-white rounded-xl shadow-lg p-8 cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+            className="bg-white rounded-2xl shadow-2xl p-10 cursor-pointer hover:shadow-green-200 transition-all duration-300 transform hover:scale-105 border-2 border-green-100 hover:border-green-300"
           >
             <div className="text-center">
-              <div className="bg-green-100 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                <Book className="w-8 h-8 text-green-600" />
+              <div className="bg-gradient-to-br from-green-200 to-teal-200 rounded-full p-5 w-20 h-20 mx-auto mb-4 flex items-center justify-center shadow-md">
+                <Book className="w-10 h-10 text-green-600" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Teacher Portal</h2>
+              <h2 className="text-2xl font-bold text-green-700 mb-2">Teacher Portal</h2>
               <p className="text-gray-600 mb-4">Manage students, schedule classes, and share knowledge</p>
-              <ul className="text-sm text-gray-500 space-y-1">
+              <ul className="text-sm text-gray-500 space-y-1 text-left mx-auto max-w-xs">
                 <li>• Manage student requests</li>
                 <li>• Set monthly availability</li>
                 <li>• View student progress</li>

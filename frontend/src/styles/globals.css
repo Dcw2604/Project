@@ -1,0 +1,18 @@
+/* EduConnect global styles - extend Tailwind with custom rules if needed */
+
+/* Example: Custom font family for headings */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+}
+
+/* Example: Custom scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  background: #f3f4f6;
+}
+::-webkit-scrollbar-thumb {
+  background: #3b82f6;
+  border-radius: 4px;
+}
+
+/* Add more global styles as needed for EduConnect */
