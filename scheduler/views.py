@@ -1,10 +1,16 @@
 from django.shortcuts import render
-
-# Create your views here.
-
+from rest_framework import generics, permissions
+from .serializers import UserRegistrationSerializer
+from .models import User
 from rest_framework import viewsets, permissions
 from .models import Lesson
 from .serializers import LessonSerializer
+
+class UserRegistrationView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserRegistrationSerializer
+    permission_classes = [permissions.AllowAny]
+
 
 # ViewSet that provides CRUD operations (Create, Read, Update, Delete)
 # for Lesson objects through the API
