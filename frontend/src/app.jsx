@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
 import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
@@ -8,55 +10,92 @@ import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
+import Alert from '@mui/material/Alert';
+import StudentDashboard from './components/dashboard/student/StudentDashboard';
+import { useAuth } from './hooks/useAuth';
 import './styles/globals.css';
+
+// Simple TeacherDashboard placeholder
+const TeacherDashboard = ({ user, setCurrentPage }) => (
+  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 600, width: '100%', textAlign: 'center' }}>
+    <Typography variant="h5" fontWeight={700} mb={2}>Welcome, {user?.name}</Typography>
+    <Typography variant="body1" mb={4}>Teacher Dashboard (Coming Soon)</Typography>
+    <Button color="inherit" onClick={() => setCurrentPage('landing')}>Logout</Button>
+  </Paper>
+);
+
+// Create a theme instance
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#1976d2',
+    },
+    secondary: {
+      main: '#dc004e',
+    },
+  },
+});
 
 const App = () => {
   const [currentPage, setCurrentPage] = useState('landing');
-  const [user, setUser] = useState(null);
+  const [forceRender, setForceRender] = useState(0);
+  const { user, isAuthenticated, logout } = useAuth();
+
+  // Force re-render when authentication state changes
+  useEffect(() => {
+    console.log('Auth state changed:', { isAuthenticated, user, currentPage });
+    if (isAuthenticated && user) {
+      // User just logged in, force re-render
+      setForceRender(prev => prev + 1);
+      console.log('User authenticated, forcing render');
+    }
+  }, [isAuthenticated, user]);
 
   const handleSignOut = () => {
-    setUser(null);
+    logout();
     setCurrentPage('landing');
   };
 
   const renderCurrentPage = () => {
-    if (user?.role === 'student') {
+    // If user is authenticated, always show the dashboard regardless of currentPage
+    if (isAuthenticated && user) {
       return <StudentDashboard user={user} setCurrentPage={setCurrentPage} />;
     }
-    if (user?.role === 'teacher') {
-      return <TeacherDashboard user={user} setCurrentPage={setCurrentPage} />;
-    }
+    
+    // If not authenticated, show login/signup pages
     switch (currentPage) {
       case 'landing':
         return <LandingPage setCurrentPage={setCurrentPage} />;
       case 'student-portal':
-        return <StudentPortal setCurrentPage={setCurrentPage} setUser={setUser} />;
+        return <StudentPortal setCurrentPage={setCurrentPage} />;
       case 'student-signup':
-        return <StudentSignUp setCurrentPage={setCurrentPage} setUser={setUser} />;
+        return <StudentSignUp setCurrentPage={setCurrentPage} />;
       case 'teacher-portal':
-        return <TeacherPortal setCurrentPage={setCurrentPage} setUser={setUser} />;
+        return <TeacherPortal setCurrentPage={setCurrentPage} />;
       case 'teacher-signup':
-        return <TeacherSignUp setCurrentPage={setCurrentPage} setUser={setUser} />;
+        return <TeacherSignUp setCurrentPage={setCurrentPage} />;
       default:
         return <LandingPage setCurrentPage={setCurrentPage} />;
     }
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'linear-gradient(135deg, #c7d2fe 0%, #e0e7ff 50%, #f3e8ff 100%)',
-      }}
-    >
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'linear-gradient(135deg, #c7d2fe 0%, #e0e7ff 50%, #f3e8ff 100%)',
+        }}
+      >
       <AppBar position="sticky" color="inherit" elevation={2} sx={{ bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)' }}>
         <Toolbar>
           <Typography variant="h4" component="div" sx={{ flexGrow: 1, fontWeight: 800, color: '#4338ca', letterSpacing: 1 }}>
             EduConnect
           </Typography>
-          {user ? (
+          {isAuthenticated ? (
             <Button color="error" variant="outlined" sx={{ fontWeight: 600 }} onClick={handleSignOut}>Sign Out</Button>
           ) : null}
         </Toolbar>
@@ -68,6 +107,7 @@ const App = () => {
         © 2025 EduConnect. All rights reserved.
       </Box>
     </Box>
+    </ThemeProvider>
   );
 };
 
@@ -88,21 +128,75 @@ const LandingPage = ({ setCurrentPage }) => (
 
 
 // Student Portal (Sign In)
-const StudentPortal = ({ setCurrentPage, setUser }) => {
-  const handleLogin = () => {
-    setUser({ id: 1, name: 'John Doe', role: 'student', level: 'A2' });
-    // Home becomes student dashboard
+const StudentPortal = ({ setCurrentPage }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const { loginWithCredentials } = useAuth();
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!username || !password) {
+      setError('Please enter both username and password');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    
+    console.log('Attempting login...');
+    const result = await loginWithCredentials(username, password);
+    console.log('Login result:', result);
+    
+    if (result.success) {
+      console.log('Login successful');
+      // Force navigation to dashboard after successful login
+      setTimeout(() => {
+        window.location.reload(); // Force a full page refresh to ensure state is updated
+      }, 100);
+    } else {
+      setError(result.error || 'Login failed');
+    }
+    
+    setIsLoading(false);
   };
+
   return (
     <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 400, width: '100%', textAlign: 'center' }}>
       <Typography variant="h5" fontWeight={700} mb={2}>Student Portal - Sign In</Typography>
-      <Stack spacing={2} mb={2}>
-        <TextField label="Email" variant="outlined" fullWidth />
-        <TextField label="Password" type="password" variant="outlined" fullWidth />
-      </Stack>
-      <Button variant="contained" color="primary" size="large" onClick={handleLogin} fullWidth>
-        Sign In
-      </Button>
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      <Box component="form" onSubmit={handleLogin}>
+        <Stack spacing={2} mb={2}>
+          <TextField 
+            label="Username" 
+            variant="outlined" 
+            fullWidth 
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            disabled={isLoading}
+          />
+          <TextField 
+            label="Password" 
+            type="password" 
+            variant="outlined" 
+            fullWidth 
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={isLoading}
+          />
+        </Stack>
+        <Button 
+          type="submit"
+          variant="contained" 
+          color="primary" 
+          size="large" 
+          fullWidth
+          disabled={isLoading}
+        >
+          {isLoading ? 'Signing In...' : 'Sign In'}
+        </Button>
+      </Box>
       <Button color="inherit" sx={{ mt: 1 }} onClick={() => setCurrentPage('student-signup')}>Don't have an account? Sign Up</Button>
       <Button color="inherit" sx={{ mt: 1 }} onClick={() => setCurrentPage('landing')}>Back to Home</Button>
     </Paper>
@@ -110,10 +204,10 @@ const StudentPortal = ({ setCurrentPage, setUser }) => {
 };
 
 // Student Sign Up
-const StudentSignUp = ({ setCurrentPage, setUser }) => {
+const StudentSignUp = ({ setCurrentPage }) => {
   const handleSignUp = () => {
-    setUser({ id: 1, name: 'John Doe', role: 'student', level: 'A2' });
-    setCurrentPage('student-dashboard');
+    // TODO: Implement real signup
+    alert('Signup functionality coming soon!');
   };
   return (
     <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 400, width: '100%', textAlign: 'center' }}>
@@ -138,10 +232,9 @@ const StudentSignUp = ({ setCurrentPage, setUser }) => {
 };
 
 // Teacher Portal (Sign In)
-const TeacherPortal = ({ setCurrentPage, setUser }) => {
+const TeacherPortal = ({ setCurrentPage }) => {
   const handleLogin = () => {
-    setUser({ id: 2, name: 'Jane Smith', role: 'teacher', subject: 'Math' });
-    // Home becomes teacher dashboard
+    alert('Teacher login functionality coming soon!');
   };
   return (
     <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 400, width: '100%', textAlign: 'center' }}>
@@ -160,10 +253,9 @@ const TeacherPortal = ({ setCurrentPage, setUser }) => {
 };
 
 // Teacher Sign Up
-const TeacherSignUp = ({ setCurrentPage, setUser }) => {
+const TeacherSignUp = ({ setCurrentPage }) => {
   const handleSignUp = () => {
-    setUser({ id: 2, name: 'Jane Smith', role: 'teacher', subject: 'Math' });
-    setCurrentPage('teacher-dashboard');
+    alert('Teacher signup functionality coming soon!');
   };
   return (
     <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 400, width: '100%', textAlign: 'center' }}>
@@ -184,108 +276,5 @@ const TeacherSignUp = ({ setCurrentPage, setUser }) => {
     </Paper>
   );
 };
-
-
-// Student Dashboard Component
-const StudentDashboard = ({ user, setCurrentPage }) => {
-  const [subPage, setSubPage] = useState(null);
-  if (subPage === 'schedule') return <StudentSchedule onBack={() => setSubPage(null)} />;
-  if (subPage === 'chatbot') return <StudentChatbot onBack={() => setSubPage(null)} />;
-  if (subPage === 'leveltest') return <StudentLevelTest onBack={() => setSubPage(null)} />;
-  if (subPage === 'checklevel') return <StudentCheckLevel onBack={() => setSubPage(null)} />;
-  return (
-    <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 600, width: '100%', textAlign: 'center' }}>
-      <Typography variant="h5" fontWeight={700} mb={2}>Welcome, {user?.name}</Typography>
-      <Typography variant="body1" mb={4}>Choose an option:</Typography>
-      <Stack spacing={2} mb={2}>
-        <Button variant="outlined" color="primary" onClick={() => setSubPage('schedule')}>Schedule Classes</Button>
-        <Button variant="outlined" color="primary" onClick={() => setSubPage('chatbot')}>Chatbot Questions</Button>
-        <Button variant="outlined" color="primary" onClick={() => setSubPage('leveltest')}>Take Level Test</Button>
-        <Button variant="outlined" color="primary" onClick={() => setSubPage('checklevel')}>Check My Level</Button>
-      </Stack>
-      <Button color="inherit" onClick={() => setCurrentPage('landing')}>Logout</Button>
-    </Paper>
-  );
-};
-
-const StudentSchedule = ({ onBack }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 500, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h6" mb={2}>Schedule Classes</Typography>
-    <Typography mb={3}>[Class scheduling UI goes here]</Typography>
-    <Button variant="outlined" onClick={onBack}>Back to Dashboard</Button>
-  </Paper>
-);
-const StudentChatbot = ({ onBack }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 500, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h6" mb={2}>Chatbot Questions</Typography>
-    <Typography mb={3}>[Chatbot Q&A UI goes here]</Typography>
-    <Button variant="outlined" onClick={onBack}>Back to Dashboard</Button>
-  </Paper>
-);
-const StudentLevelTest = ({ onBack }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 500, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h6" mb={2}>Take Level Test</Typography>
-    <Typography mb={3}>[Level test UI goes here]</Typography>
-    <Button variant="outlined" onClick={onBack}>Back to Dashboard</Button>
-  </Paper>
-);
-const StudentCheckLevel = ({ onBack }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 500, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h6" mb={2}>Check My Level</Typography>
-    <Typography mb={3}>[Student level info goes here]</Typography>
-    <Button variant="outlined" onClick={onBack}>Back to Dashboard</Button>
-  </Paper>
-);
-
-// Teacher Dashboard Component
-const TeacherDashboard = ({ user, setCurrentPage }) => {
-  const [subPage, setSubPage] = useState(null);
-  if (subPage === 'requests') return <TeacherRequests onBack={() => setSubPage(null)} />;
-  if (subPage === 'stats') return <TeacherStats onBack={() => setSubPage(null)} />;
-  if (subPage === 'hours') return <TeacherOpenHours onBack={() => setSubPage(null)} />;
-  if (subPage === 'documents') return <TeacherDocuments onBack={() => setSubPage(null)} />;
-  return (
-    <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 600, width: '100%', textAlign: 'center' }}>
-      <Typography variant="h5" fontWeight={700} mb={2}>Welcome, {user?.name}</Typography>
-      <Typography variant="body1" mb={4}>Choose an option:</Typography>
-      <Stack spacing={2} mb={2}>
-        <Button variant="outlined" color="success" onClick={() => setSubPage('requests')}>Manage Student Requests</Button>
-        <Button variant="outlined" color="success" onClick={() => setSubPage('stats')}>View Student Stats</Button>
-        <Button variant="outlined" color="success" onClick={() => setSubPage('hours')}>Set Monthly Open Hours</Button>
-        <Button variant="outlined" color="success" onClick={() => setSubPage('documents')}>Add Documents for Chatbot</Button>
-      </Stack>
-      <Button color="inherit" onClick={() => setCurrentPage('landing')}>Logout</Button>
-    </Paper>
-  );
-};
-
-const TeacherRequests = ({ onBack }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 500, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h6" mb={2}>Manage Student Requests</Typography>
-    <Typography mb={3}>[Class calendar, accept/deny UI goes here]</Typography>
-    <Button variant="outlined" onClick={onBack}>Back to Dashboard</Button>
-  </Paper>
-);
-const TeacherStats = ({ onBack }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 500, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h6" mb={2}>View Student Stats</Typography>
-    <Typography mb={3}>[Student level/test stats UI goes here]</Typography>
-    <Button variant="outlined" onClick={onBack}>Back to Dashboard</Button>
-  </Paper>
-);
-const TeacherOpenHours = ({ onBack }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 500, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h6" mb={2}>Set Monthly Open Hours</Typography>
-    <Typography mb={3}>[Open hours calendar UI goes here]</Typography>
-    <Button variant="outlined" onClick={onBack}>Back to Dashboard</Button>
-  </Paper>
-);
-const TeacherDocuments = ({ onBack }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 500, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h6" mb={2}>Add Documents for Chatbot</Typography>
-    <Typography mb={3}>[Document upload UI goes here]</Typography>
-    <Button variant="outlined" onClick={onBack}>Back to Dashboard</Button>
-  </Paper>
-);
 
 export default App;
