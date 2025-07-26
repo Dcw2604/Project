@@ -107,11 +107,11 @@ const MessageBubble = styled(Paper)(({ theme, variant }) => ({
 }));
 
 const ChatContainer = styled(Box)(({ theme }) => ({
-    height: 'calc(100vh - 80px)', // Account for header height
+    height: '100vh',
     display: 'flex',
     flexDirection: 'column',
     position: 'fixed',
-    top: '80px', // Start below the header
+    top: 0,
     left: 0,
     right: 0,
     bottom: 0,
@@ -241,78 +241,161 @@ const ChatbotQuestions = () => {
     const scrollToBottom = () => {
         if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({ 
-                behavior: 'smooth',
-                block: 'nearest' 
+                behavior: "smooth",
+                block: "end",
+                inline: "nearest"
             });
         }
     };
 
+    // Smooth scroll to top for easy navigation
     const scrollToTop = () => {
         if (messagesAreaRef.current) {
-            messagesAreaRef.current.scrollTo({
-                top: 0,
-                behavior: 'smooth'
+            messagesAreaRef.current.scrollTo({ 
+                top: 0, 
+                behavior: 'smooth' 
             });
         }
     };
 
-    // Enhanced scroll monitoring with throttling
-    useEffect(() => {
-        const messagesArea = messagesAreaRef.current;
-        if (!messagesArea) return;
+    // Quick scroll to bottom (instant for new messages)
+    const quickScrollToBottom = () => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView(false);
+        }
+    };
 
-        let scrollTimeout;
+    // Enhanced scroll detection for better UX
+    useEffect(() => {
         const handleScroll = () => {
-            clearTimeout(scrollTimeout);
-            scrollTimeout = setTimeout(() => {
-                const { scrollTop, scrollHeight, clientHeight } = messagesArea;
-                const isAtTop = scrollTop < 100;
-                const isAtBottom = scrollTop + clientHeight >= scrollHeight - 100;
+            if (messagesAreaRef.current) {
+                const { scrollTop, scrollHeight, clientHeight } = messagesAreaRef.current;
+                const scrollPercent = scrollTop / (scrollHeight - clientHeight);
                 
-                setShowScrollToTop(!isAtTop && scrollTop > 200);
-                setShowScrollToBottom(!isAtBottom && messages.length > 3);
-            }, 16); // ~60fps throttling
+                // Show scroll to top if user has scrolled down more than 20%
+                setShowScrollToTop(scrollPercent > 0.2);
+                
+                // Show scroll to bottom if user is not at the bottom (less than 95%)
+                setShowScrollToBottom(scrollPercent < 0.95);
+            }
         };
 
-        messagesArea.addEventListener('scroll', handleScroll, { passive: true });
-        return () => {
-            messagesArea.removeEventListener('scroll', handleScroll);
-            clearTimeout(scrollTimeout);
-        };
-    }, [messages.length]);
-
-    // Auto-scroll to bottom when new messages arrive
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            scrollToBottom();
-        }, 100);
-        return () => clearTimeout(timer);
+        const messagesArea = messagesAreaRef.current;
+        if (messagesArea) {
+            messagesArea.addEventListener('scroll', handleScroll);
+            // Initial check
+            handleScroll();
+            
+            return () => {
+                messagesArea.removeEventListener('scroll', handleScroll);
+            };
+        }
     }, [messages]);
 
-    // Load user documents on component mount
+    useEffect(() => {
+        // Auto-scroll to bottom for new messages, but only if user was already near bottom
+        const messagesArea = messagesAreaRef.current;
+        if (messagesArea && messages.length > 0) {
+            const { scrollTop, scrollHeight, clientHeight } = messagesArea;
+            const scrollPercent = scrollTop / (scrollHeight - clientHeight);
+            
+            // If user is near bottom (within 90%), auto-scroll to new message
+            if (scrollPercent > 0.9 || messages.length === 1) {
+                setTimeout(quickScrollToBottom, 100); // Small delay for DOM update
+            }
+        }
+    }, [messages]);
+
+    // Load user's documents and chat history on component mount
     useEffect(() => {
         loadUserDocuments();
-    }, [authToken]);
+        loadChatHistory();
+    }, []);
 
     const loadUserDocuments = async () => {
-        if (!authToken) return;
-        
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/documents/', {
-                headers: {
-                    'Authorization': `Token ${authToken}`,
-                    'Content-Type': 'application/json',
-                }
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            
+            if (authToken) {
+                headers['Authorization'] = `Token ${authToken}`;
+            }
+
+            const endpoint = useRAG ? 'rag_documents' : 'documents';
+            const response = await fetch(`http://127.0.0.1:8000/api/${endpoint}/`, {
+                method: 'GET',
+                headers,
             });
 
             if (response.ok) {
                 const data = await response.json();
                 setUploadedDocuments(data.documents || []);
-            } else {
-                console.error('Failed to load documents:', response.status);
+            } else if (response.status === 403 || response.status === 401) {
+                console.log('Authentication issue loading documents');
+                // Don't show error to user for document loading
+                setUploadedDocuments([]);
             }
         } catch (error) {
             console.error('Error loading documents:', error);
+            setUploadedDocuments([]);
+        }
+    };
+
+    const loadChatHistory = async () => {
+        try {
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            
+            if (authToken) {
+                headers['Authorization'] = `Token ${authToken}`;
+            }
+
+            const response = await fetch(`http://127.0.0.1:8000/api/chat_history/?limit=20`, {
+                method: 'GET',
+                headers,
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Convert backend chat history to frontend message format
+                const backendMessages = data.chats || [];
+                const convertedMessages = backendMessages.map(chat => [
+                    {
+                        type: 'user',
+                        content: chat.question,
+                        timestamp: chat.created_at
+                    },
+                    {
+                        type: 'assistant',
+                        content: chat.answer,
+                        timestamp: chat.created_at,
+                        source: chat.topic,
+                        chatId: chat.id
+                    }
+                ]).flat();
+
+                // Merge with any existing localStorage messages (avoid duplicates)
+                const savedMessages = JSON.parse(localStorage.getItem('chatbot_messages') || '[]');
+                const existingChatIds = savedMessages
+                    .filter(msg => msg.chatId)
+                    .map(msg => msg.chatId);
+                
+                const newMessages = convertedMessages.filter(msg => 
+                    !msg.chatId || !existingChatIds.includes(msg.chatId)
+                );
+
+                const allMessages = [...savedMessages, ...newMessages];
+                setMessages(allMessages);
+                localStorage.setItem('chatbot_messages', JSON.stringify(allMessages));
+            }
+        } catch (error) {
+            console.error('Error loading chat history:', error);
+            // Fallback to localStorage only
+            const savedMessages = JSON.parse(localStorage.getItem('chatbot_messages') || '[]');
+            setMessages(savedMessages);
         }
     };
 
@@ -320,48 +403,43 @@ const ChatbotQuestions = () => {
         e.preventDefault();
         if (!newQuestion.trim() || isLoading) return;
 
-        setIsLoading(true);
-
-        // Add user message immediately
+        // Add user message immediately for better UX
         const userMessage = {
             type: 'user',
             content: newQuestion,
             timestamp: new Date().toISOString()
         };
-
         setMessages(prev => [...prev, userMessage]);
 
-        // Add processing message
-        const processingMessage = {
-            type: 'assistant',
-            content: '🤔 Thinking...',
-            timestamp: new Date().toISOString(),
-            isProcessing: true
-        };
-
-        setMessages(prev => [...prev, processingMessage]);
+        // Add processing indicator if documents are selected
+        let processingMessage = null;
+        if (selectedDocuments.length > 0) {
+            processingMessage = {
+                type: 'assistant',
+                content: `🔍 Searching through ${selectedDocuments.length} document${selectedDocuments.length > 1 ? 's' : ''} for relevant information...`,
+                timestamp: new Date().toISOString(),
+                isProcessing: true
+            };
+            setMessages(prev => [...prev, processingMessage]);
+        }
 
         try {
-            // Determine the endpoint based on RAG mode and documents
-            const endpoint = useRAG ? 'chat_interaction' : 'chat_interaction';
-
+            setIsLoading(true);
             const headers = {
                 'Content-Type': 'application/json',
             };
-
+            
             if (authToken) {
                 headers['Authorization'] = `Token ${authToken}`;
             }
 
-            // Build request data
-            const requestData = {
-                question: newQuestion,
-                use_rag: useRAG
-            };
+            // Choose endpoint based on RAG mode
+            const endpoint = useRAG ? 'rag_chat' : 'chat_interaction';
 
-            // Include selected documents if any
-            if (selectedDocuments.length > 0) {
-                requestData.document_ids = selectedDocuments;
+            // Prepare request data
+            const requestData = { 
+                question: newQuestion,
+                document_ids: selectedDocuments
             };
 
             console.log('Sending request:', {
@@ -624,228 +702,106 @@ const ChatbotQuestions = () => {
 
     return (
         <ChatContainer>
-            {/* Enhanced Top Navigation Bar */}
+            {/* Top Navigation Bar for Tabs */}
             <Box 
                 sx={{ 
-                    height: '80px',
-                    background: 'linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0.1) 100%)',
-                    backdropFilter: 'blur(40px)',
+                    height: '70px',
+                    background: 'linear-gradient(135deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.15) 100%)',
+                    backdropFilter: 'blur(30px)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     px: 4,
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-                    border: '1px solid rgba(255,255,255,0.4)',
-                    borderBottom: '1px solid rgba(255,255,255,0.3)',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    borderBottom: '1px solid rgba(255,255,255,0.2)',
                     zIndex: 1100,
-                    position: 'relative',
-                    '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'linear-gradient(90deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.1) 100%)',
-                        zIndex: -1,
-                        animation: 'shimmer 3s ease-in-out infinite',
-                    },
-                    '@keyframes shimmer': {
-                        '0%, 100%': { opacity: 0.5 },
-                        '50%': { opacity: 1 }
-                    }
+                    position: 'relative'
                 }}
             >
-                {/* Left side - Brand and mode indicator */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Box 
-                            sx={{ 
-                                background: 'linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.7) 100%)',
-                                borderRadius: '50%',
-                                p: 1.5,
-                                backdropFilter: 'blur(20px)',
-                                border: '2px solid rgba(255,255,255,0.5)',
-                                boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-                                animation: 'pulse 2s ease-in-out infinite',
-                                '@keyframes pulse': {
-                                    '0%, 100%': { transform: 'scale(1)' },
-                                    '50%': { transform: 'scale(1.05)' }
-                                }
-                            }}
-                        >
-                            <AutoAwesomeIcon sx={{ fontSize: 28, color: '#667eea', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }} />
-                        </Box>
-                        <Box>
-                            <Typography 
-                                variant="h4" 
-                                sx={{ 
-                                    color: 'white',
-                                    fontWeight: 800,
-                                    textShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                                    letterSpacing: '1px',
-                                    background: 'linear-gradient(135deg, #ffffff 0%, #f0f8ff 100%)',
-                                    backgroundClip: 'text',
-                                    WebkitBackgroundClip: 'text',
-                                    WebkitTextFillColor: 'transparent',
-                                    lineHeight: 1
-                                }}
-                            >
-                                Enhanced AI Chatbot
-                            </Typography>
-                            <Typography 
-                                variant="caption" 
-                                sx={{ 
-                                    color: 'rgba(255, 255, 255, 0.8)',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 500,
-                                    textShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                                }}
-                            >
-                                Powered by RAG Technology
-                            </Typography>
-                        </Box>
-                    </Box>
-                    
-                    <Chip 
-                        label={useRAG ? '🚀 RAG Mode Active' : '⚡ Standard Mode'}
-                        size="medium"
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <AutoAwesomeIcon sx={{ fontSize: 32, color: 'white', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }} />
+                    <Typography 
+                        variant="h5" 
                         sx={{ 
-                            backgroundColor: useRAG ? 'rgba(76, 205, 50, 0.9)' : 'rgba(255, 193, 7, 0.9)',
                             color: 'white',
                             fontWeight: 700,
-                            fontSize: '0.8rem',
-                            backdropFilter: 'blur(20px)',
-                            border: '2px solid rgba(255,255,255,0.4)',
-                            boxShadow: '0 6px 20px rgba(0,0,0,0.2)',
-                            px: 1,
-                            animation: useRAG ? 'glow 2s ease-in-out infinite' : 'none',
-                            '@keyframes glow': {
-                                '0%, 100%': { boxShadow: '0 6px 20px rgba(76, 205, 50, 0.3)' },
-                                '50%': { boxShadow: '0 6px 20px rgba(76, 205, 50, 0.6)' }
-                            },
-                            '&:hover': {
-                                transform: 'scale(1.05)',
-                                boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
-                            },
-                            transition: 'all 0.3s ease'
+                            textShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                            letterSpacing: '0.5px'
+                        }}
+                    >
+                        Enhanced AI Chatbot
+                    </Typography>
+                    <Chip 
+                        label={useRAG ? 'RAG Mode' : 'Standard Mode'}
+                        size="small"
+                        sx={{ 
+                            backgroundColor: useRAG ? 'rgba(76, 205, 50, 0.8)' : 'rgba(255, 193, 7, 0.8)',
+                            color: 'white',
+                            fontWeight: 600,
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(255,255,255,0.3)'
                         }}
                     />
                 </Box>
                 
-                {/* Right side - Enhanced action buttons */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    {/* RAG Mode Toggle with enhanced styling */}
-                    <Box 
-                        sx={{ 
-                            background: 'rgba(255, 255, 255, 0.15)',
-                            backdropFilter: 'blur(20px)',
-                            borderRadius: '25px',
-                            p: 1,
-                            border: '1px solid rgba(255,255,255,0.3)',
-                            boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
-                        }}
-                    >
-                        <FormControlLabel
-                            control={
-                                <Switch
-                                    checked={useRAG}
-                                    onChange={(e) => setUseRAG(e.target.checked)}
-                                    sx={{
-                                        '& .MuiSwitch-thumb': {
-                                            backgroundColor: 'white',
-                                            boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-                                            width: 24,
-                                            height: 24
-                                        },
-                                        '& .MuiSwitch-track': {
-                                            backgroundColor: 'rgba(255,255,255,0.4)',
-                                            border: '2px solid rgba(255,255,255,0.6)',
-                                            borderRadius: '12px'
-                                        },
-                                        '& .Mui-checked + .MuiSwitch-track': {
-                                            backgroundColor: 'rgba(76, 205, 50, 0.8)',
-                                        }
-                                    }}
-                                />
-                            }
-                            label={
-                                <Typography sx={{ 
-                                    color: 'white', 
-                                    fontWeight: 600, 
-                                    fontSize: '0.9rem',
-                                    textShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                                }}>
-                                    RAG Mode
-                                </Typography>
-                            }
-                        />
-                    </Box>
-
-                    {/* Enhanced Documents Button */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                checked={useRAG}
+                                onChange={(e) => setUseRAG(e.target.checked)}
+                                sx={{
+                                    '& .MuiSwitch-thumb': {
+                                        backgroundColor: 'white',
+                                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                                    },
+                                    '& .MuiSwitch-track': {
+                                        backgroundColor: 'rgba(255,255,255,0.3)',
+                                        border: '1px solid rgba(255,255,255,0.5)'
+                                    }
+                                }}
+                            />
+                        }
+                        label={<Typography sx={{ color: 'white', fontWeight: 500 }}>RAG Mode</Typography>}
+                    />
                     <Button
                         startIcon={<HistoryIcon />}
                         onClick={() => setShowDocuments(!showDocuments)}
                         variant="outlined"
-                        size="medium"
+                        size="small"
                         sx={{
                             color: 'white',
-                            borderColor: 'rgba(255,255,255,0.6)',
-                            backgroundColor: 'rgba(255,255,255,0.15)',
-                            backdropFilter: 'blur(20px)',
-                            borderRadius: '20px',
-                            px: 3,
-                            py: 1,
-                            fontWeight: 600,
-                            fontSize: '0.85rem',
-                            textTransform: 'none',
-                            border: '2px solid rgba(255,255,255,0.4)',
-                            boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
+                            borderColor: 'rgba(255,255,255,0.5)',
+                            backgroundColor: 'rgba(255,255,255,0.1)',
+                            backdropFilter: 'blur(10px)',
                             '&:hover': {
-                                backgroundColor: 'rgba(255,255,255,0.25)',
-                                borderColor: 'rgba(255,255,255,0.8)',
-                                transform: 'translateY(-2px)',
-                                boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
-                            },
-                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                                backgroundColor: 'rgba(255,255,255,0.2)',
+                                borderColor: 'rgba(255,255,255,0.8)'
+                            }
                         }}
                     >
-                        📚 Documents ({uploadedDocuments.length})
+                        Documents ({uploadedDocuments.length})
                     </Button>
-
-                    {/* Enhanced Clear Memory Button */}
                     <Button
                         startIcon={<MemoryIcon />}
                         onClick={clearMemory}
                         variant="outlined"
-                        size="medium"
+                        size="small"
                         sx={{
                             color: 'white',
-                            borderColor: 'rgba(255,152,0,0.8)',
-                            backgroundColor: 'rgba(255,152,0,0.15)',
-                            backdropFilter: 'blur(20px)',
-                            borderRadius: '20px',
-                            px: 3,
-                            py: 1,
-                            fontWeight: 600,
-                            fontSize: '0.85rem',
-                            textTransform: 'none',
-                            border: '2px solid rgba(255,152,0,0.6)',
-                            boxShadow: '0 6px 20px rgba(255,152,0,0.2)',
+                            borderColor: 'rgba(255,152,0,0.7)',
+                            backgroundColor: 'rgba(255,152,0,0.1)',
+                            backdropFilter: 'blur(10px)',
                             '&:hover': {
-                                backgroundColor: 'rgba(255,152,0,0.25)',
-                                borderColor: 'rgba(255,152,0,1)',
-                                transform: 'translateY(-2px)',
-                                boxShadow: '0 8px 24px rgba(255,152,0,0.3)'
-                            },
-                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                                backgroundColor: 'rgba(255,152,0,0.2)',
+                                borderColor: 'rgba(255,152,0,1)'
+                            }
                         }}
                         title="Clear conversation memory and delete all uploaded files"
                     >
-                        🧹 Clear Memory
+                        Clear Memory & Files
                     </Button>
-
-                    {/* Enhanced Clear Chat Button */}
                     <Button
                         startIcon={<ClearIcon />}
                         onClick={() => {
@@ -853,35 +809,24 @@ const ChatbotQuestions = () => {
                             localStorage.removeItem('chatbot_messages');
                         }}
                         variant="outlined"
-                        size="medium"
+                        size="small"
                         sx={{
                             color: 'white',
-                            borderColor: 'rgba(244,67,54,0.8)',
-                            backgroundColor: 'rgba(244,67,54,0.15)',
-                            backdropFilter: 'blur(20px)',
-                            borderRadius: '20px',
-                            px: 3,
-                            py: 1,
-                            fontWeight: 600,
-                            fontSize: '0.85rem',
-                            textTransform: 'none',
-                            border: '2px solid rgba(244,67,54,0.6)',
-                            boxShadow: '0 6px 20px rgba(244,67,54,0.2)',
+                            borderColor: 'rgba(244,67,54,0.7)',
+                            backgroundColor: 'rgba(244,67,54,0.1)',
+                            backdropFilter: 'blur(10px)',
                             '&:hover': {
-                                backgroundColor: 'rgba(244,67,54,0.25)',
-                                borderColor: 'rgba(244,67,54,1)',
-                                transform: 'translateY(-2px)',
-                                boxShadow: '0 8px 24px rgba(244,67,54,0.3)'
-                            },
-                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                                backgroundColor: 'rgba(244,67,54,0.2)',
+                                borderColor: 'rgba(244,67,54,1)'
+                            }
                         }}
                     >
-                        🗑️ Clear Chat
+                        Clear Chat
                     </Button>
                 </Box>
             </Box>
 
-            {/* Document list */}
+            {/* Document list and selection */}
             {showDocuments && (
                 <Paper 
                     sx={{ 
@@ -1020,7 +965,6 @@ const ChatbotQuestions = () => {
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {messages.map((message, index) => renderMessage(message, index))}
                 </Box>
-                <div ref={messagesEndRef} />
             </MessagesArea>
 
             {/* Scroll buttons */}
@@ -1192,6 +1136,168 @@ const ChatbotQuestions = () => {
                     >
                         {isLoading ? (
                             <CircularProgress size={24} sx={{ color: 'rgba(0,0,0,0.3)' }} />
+                        ) : (
+                            <SendIcon />
+                        )}
+                    </IconButton>
+                </Box>
+            </InputArea>
+
+            {/* Hidden div for auto-scroll */}
+            <div ref={messagesEndRef} />
+        </ChatContainer>
+    );
+                {messages.length === 0 && (
+                    <Box 
+                        sx={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            height: '100%',
+                            opacity: 0.6,
+                            flexDirection: 'column',
+                            textAlign: 'center'
+                        }}
+                    >
+                        <AutoAwesomeIcon sx={{ fontSize: 48, mb: 2 }} />
+                        <Typography variant="h6" color="text.secondary" gutterBottom>
+                            Enhanced AI Chatbot with RAG
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                            • Upload documents for AI-powered Q&A<br/>
+                            • Conversation memory for context<br/>
+                            • Math problem solving<br/>
+                            • Multi-document search
+                        </Typography>
+                    </Box>
+                )}
+                
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {messages.map((message, index) => renderMessage(message, index))}
+                </Box>
+                <div ref={messagesEndRef} />
+            </MessagesArea>
+
+            {/* Floating Action Buttons for Scroll Navigation */}
+            {showScrollToTop && (
+                <Fab
+                    size="small"
+                    color="primary"
+                    aria-label="scroll to top"
+                    onClick={scrollToTop}
+                    sx={{
+                        position: 'absolute',
+                        bottom: 120,
+                        right: 20,
+                        zIndex: 1000,
+                        opacity: 0.8,
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                            opacity: 1,
+                            transform: 'scale(1.1)'
+                        }
+                    }}
+                >
+                    <KeyboardArrowUpIcon />
+                </Fab>
+            )}
+            
+            {showScrollToBottom && messages.length > 3 && (
+                <Fab
+                    size="small"
+                    color="secondary"
+                    aria-label="scroll to bottom"
+                    onClick={scrollToBottom}
+                    sx={{
+                        position: 'absolute',
+                        bottom: 70,
+                        right: 20,
+                        zIndex: 1000,
+                        opacity: 0.8,
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                            opacity: 1,
+                            transform: 'scale(1.1)'
+                        }
+                    }}
+                >
+                    <KeyboardArrowDownIcon />
+                </Fab>
+            )}
+
+            {/* Input area */}
+            <InputArea elevation={3}>
+                {isUploading && (
+                    <Box sx={{ mb: 2 }}>
+                        <LinearProgress />
+                        <Typography variant="caption" color="text.secondary">
+                            Uploading and processing document...
+                        </Typography>
+                    </Box>
+                )}
+
+                <Box 
+                    component="form" 
+                    onSubmit={handleSubmit} 
+                    sx={{ 
+                        display: 'flex',
+                        gap: 2,
+                        alignItems: 'flex-end' 
+                    }}
+                >
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        style={{ display: 'none' }}
+                        accept=".pdf,.txt,.doc,.docx"
+                    />
+                    
+                    <IconButton
+                        onClick={() => fileInputRef.current?.click()}
+                        color="primary"
+                        title="Upload document"
+                        size="large"
+                        disabled={isUploading}
+                    >
+                        <AttachFileIcon />
+                    </IconButton>
+                    
+                    <TextField
+                        fullWidth
+                        multiline
+                        maxRows={4}
+                        value={newQuestion}
+                        onChange={(e) => setNewQuestion(e.target.value)}
+                        placeholder={selectedDocuments.length > 0 
+                            ? `Ask about: ${selectedDocuments.map(id => {
+                                const doc = uploadedDocuments.find(d => d.id.toString() === id);
+                                return doc ? doc.title : 'document';
+                            }).join(', ')}...` 
+                            : uploadedDocuments.length > 0 
+                                ? "Select documents above or ask general questions..."
+                                : "Ask me anything about math, general topics, or upload a document first..."
+                        }
+                        disabled={isLoading || isUploading}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSubmit(e);
+                            }
+                        }}
+                        variant="outlined"
+                        sx={{ backgroundColor: 'background.paper' }}
+                    />
+
+                    <IconButton
+                        type="submit"
+                        disabled={isLoading || !newQuestion.trim() || isUploading}
+                        color="primary"
+                        title="Send message"
+                        size="large"
+                    >
+                        {isLoading ? (
+                            <CircularProgress size={24} />
                         ) : (
                             <SendIcon />
                         )}

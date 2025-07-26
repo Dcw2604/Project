@@ -29,7 +29,7 @@ export const useAuth = () => {
 
   const loginWithCredentials = async (username, password) => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/token/', {
+      const response = await fetch('http://127.0.0.1:8000/api/login/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -39,12 +39,13 @@ export const useAuth = () => {
 
       if (response.ok) {
         const data = await response.json();
-        const token = data.access;
-        const userData = { username }; // You can expand this with more user data if needed
+        const token = data.token;  // Use 'token' instead of 'access'
+        const userData = data.user;  // Get user data from response
         login(token, userData);
         return { success: true };
       } else {
-        return { success: false, error: 'Invalid credentials' };
+        const errorData = await response.json();
+        return { success: false, error: errorData.error || 'Invalid credentials' };
       }
     } catch (error) {
       return { success: false, error: 'Network error' };
