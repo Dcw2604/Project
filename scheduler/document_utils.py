@@ -32,19 +32,19 @@ try:
     try:
         version = pytesseract.get_tesseract_version()
         TESSERACT_AVAILABLE = True
-        print(f"✅ Tesseract OCR available - Version: {version}")
+        print(f"Tesseract OCR available - Version: {version}")
     except Exception as e:
         TESSERACT_AVAILABLE = False
-        print(f"❌ Tesseract executable not found or not configured: {e}")
-        print("📥 Please install Tesseract OCR:")
+        print(f"Tesseract executable not found or not configured: {e}")
+        print("Please install Tesseract OCR:")
         print("   1. Download from: https://github.com/UB-Mannheim/tesseract/wiki")
         print("   2. Install to default location")
         print("   3. Restart Django server")
         
 except ImportError:
     TESSERACT_AVAILABLE = False
-    print("❌ pytesseract not installed - OCR functionality will be limited")
-    print("📦 Install with: pip install pytesseract")
+    print("pytesseract not installed - OCR functionality will be limited")
+    print("Install with: pip install pytesseract")
 
 # LangChain imports with fallback handling
 try:
@@ -200,10 +200,10 @@ class DocumentProcessor:
         
         return result
     
-    def extract_image_text(self, file_path: str) -> Dict:
+    def extract_image_text(self, file_path: str, lang: str = 'en') -> Dict:
         """
-        Enhanced text extraction from images using OCR with pytesseract
-        Includes advanced preprocessing, confidence scoring, and text validation
+        Enhanced text extraction from images using PaddleOCR
+        Returns structured result with text, confidence, regions, and errors
         """
         result = {
             'text': '',
@@ -214,10 +214,16 @@ class DocumentProcessor:
             'overall_confidence': 0,
             'text_quality': 'unknown'
         }
+        try:
+            from paddleocr import PaddleOCR
+        except ImportError as e:
+            result['processing_errors'].append(f"PaddleOCR not installed: {str(e)}")
+            result['text'] = "OCR not available - PaddleOCR not installed"
+            result['text_quality'] = 'failed'
+            return result
 
         try:
             with Image.open(file_path) as img:
-                # Extract comprehensive metadata
                 result['metadata'] = {
                     'format': img.format,
                     'mode': img.mode,
@@ -228,129 +234,64 @@ class DocumentProcessor:
                     'file_size_mb': os.path.getsize(file_path) / (1024 * 1024) if os.path.exists(file_path) else 0
                 }
 
-                # Check if OCR is available
-                if not TESSERACT_AVAILABLE:
-                    result['processing_errors'].append("Tesseract OCR is not installed. Please install Tesseract to enable text extraction from images.")
-                    result['text'] = "OCR not available - Tesseract not installed"
-                    result['text_quality'] = 'failed'
-                    return result
+            # Initialize PaddleOCR
+            ocr = PaddleOCR(use_angle_cls=True, lang=lang)
+            ocr_result = ocr.ocr(file_path, cls=True)
 
-                # Enhanced image preprocessing
-                processed_img = self._preprocess_image_for_ocr(img)
-                
-                # Also try a more aggressive preprocessing approach for difficult images
-                processed_img_alt = self._aggressive_preprocess_image(img)
+            all_text = []
+            confidences = []
+            text_regions = []
 
-                # Multiple OCR configurations for better accuracy
-                configs = [
-                    r'--oem 3 --psm 6',  # Default configuration - good for uniform text blocks
-                    r'--oem 3 --psm 3',  # Fully automatic page segmentation
-                    r'--oem 3 --psm 4',  # Single column of text of variable sizes
-                    r'--oem 3 --psm 7',  # Single text line
-                    r'--oem 3 --psm 8',  # Single word
-                    r'--oem 3 --psm 11', # Sparse text
-                    r'--oem 3 --psm 12', # Sparse text with OSD
-                    r'--oem 3 --psm 13', # Raw line. Treat the image as a single text line
-                ]
-                
-                best_text = ""
-                best_confidence = 0
-                all_results = []
-                
-                # Try multiple OCR configurations and pick the best result
-                # Test both regular and aggressive preprocessing
-                preprocessed_images = [
-                    ("standard", processed_img),
-                    ("aggressive", processed_img_alt)
-                ]
-                
-                for preprocess_type, test_img in preprocessed_images:
-                    print(f"🔧 Testing {preprocess_type} preprocessing...")
-                    
-                    for config in configs:
-                        try:
-                            print(f"🔍 Trying OCR config: {config}")
-                            # Extract text with current configuration
-                            text = pytesseract.image_to_string(test_img, config=config).strip()
-                            print(f"   📝 Extracted text ({len(text)} chars): '{text[:100]}...' " if len(text) > 100 else f"   📝 Extracted text: '{text}'")
-                            
-                            # Get detailed confidence data
-                            detailed_data = pytesseract.image_to_data(test_img, config=config, output_type=pytesseract.Output.DICT)
-                            
-                            if detailed_data and text:
-                                # Calculate average confidence for this configuration
-                                confidences = [int(conf) for conf in detailed_data['conf'] if int(conf) > 0]
-                                avg_confidence = sum(confidences) / len(confidences) if confidences else 0
-                                print(f"   📊 Average confidence: {avg_confidence:.1f}%, Individual confidences: {confidences[:5]}{'...' if len(confidences) > 5 else ''}")
-                                
-                                all_results.append({
-                                    'text': text,
-                                    'confidence': avg_confidence,
-                                    'config': config,
-                                    'preprocessing': preprocess_type,
-                                    'confidences': confidences,
-                                    'detailed_data': detailed_data
-                                })
-                                
-                                # Track the best result - prefer higher confidence but also consider text length
-                                text_score = avg_confidence + (len(text) * 0.1)  # Slight bonus for longer text
-                                current_best_score = best_confidence + (len(best_text) * 0.1)
-                                
-                                if text_score > current_best_score:
-                                    best_confidence = avg_confidence
-                                    best_text = text
-                                    print(f"   ⭐ New best result! Score: {text_score:.1f} (preprocessing: {preprocess_type})")
-                            else:
-                                print(f"   ❌ No text found with this config")
-                                    
-                        except Exception as e:
-                            print(f"   ❌ OCR config '{config}' failed: {str(e)}")
-                            result['processing_errors'].append(f"OCR config '{config}' with {preprocess_type} preprocessing failed: {str(e)}")
-                
-                # Use the best result found
-                if best_text:
-                    result['text'] = best_text
-                    result['overall_confidence'] = best_confidence
-                    
-                    # Find the best result details
-                    best_result = max(all_results, key=lambda x: x['confidence']) if all_results else None
-                    
-                    if best_result:
-                        result['confidence_scores'] = best_result['confidences']
-                        detailed_data = best_result['detailed_data']
-                        
-                        # Extract high-confidence text regions with positions
-                        for i, text_piece in enumerate(detailed_data['text']):
-                            if text_piece.strip() and int(detailed_data['conf'][i]) > 30:
-                                result['text_regions'].append({
-                                    'text': text_piece,
-                                    'confidence': int(detailed_data['conf'][i]),
-                                    'bbox': {
-                                        'left': detailed_data['left'][i],
-                                        'top': detailed_data['top'][i],
-                                        'width': detailed_data['width'][i],
-                                        'height': detailed_data['height'][i]
-                                    }
-                                })
-                
-                # Determine text quality based on confidence and length
-                if result['overall_confidence'] >= 80 and len(result['text']) > 10:
-                    result['text_quality'] = 'excellent'
-                elif result['overall_confidence'] >= 60 and len(result['text']) > 5:
-                    result['text_quality'] = 'good'
-                elif result['overall_confidence'] >= 40 and len(result['text']) > 0:
-                    result['text_quality'] = 'fair'
-                else:
-                    result['text_quality'] = 'poor'
-                
-                # Add processing summary
-                result['metadata']['processing_summary'] = {
-                    'configs_tried': len(configs),
-                    'successful_configs': len(all_results),
-                    'total_characters': len(result['text']),
-                    'total_regions': len(result['text_regions']),
-                    'average_region_confidence': sum(r['confidence'] for r in result['text_regions']) / len(result['text_regions']) if result['text_regions'] else 0
-                }
+            for region in ocr_result:
+                for line in region:
+                    # Accept both (text, confidence) and nested format
+                    if isinstance(line, (list, tuple)):
+                        # PaddleOCR sometimes returns (text, confidence) directly
+                        if len(line) == 2 and isinstance(line[0], str) and isinstance(line[1], float):
+                            text = line[0]
+                            conf = line[1]
+                            bbox = None
+                            all_text.append(text)
+                            confidences.append(conf)
+                            text_regions.append({
+                                'text': text,
+                                'confidence': conf,
+                                'bbox': bbox
+                            })
+                        # Nested format: [bbox, [text, conf]]
+                        elif len(line) > 1 and isinstance(line[1], (list, tuple)) and len(line[1]) >= 2:
+                            text = line[1][0]
+                            conf = line[1][1]
+                            bbox = line[0]
+                            all_text.append(text)
+                            confidences.append(conf)
+                            text_regions.append({
+                                'text': text,
+                                'confidence': conf,
+                                'bbox': bbox
+                            })
+                        else:
+                            result['processing_errors'].append(f"Malformed OCR line: {line}")
+                    else:
+                        result['processing_errors'].append(f"Malformed OCR line: {line}")
+            # Only join strings
+            result['text'] = '\n'.join([t for t in all_text if isinstance(t, str)]).strip()
+
+            result['text'] = '\n'.join(all_text).strip()
+            result['confidence_scores'] = confidences
+            result['text_regions'] = text_regions
+            avg_conf = sum(confidences) / len(confidences) if confidences else 0
+            result['overall_confidence'] = avg_conf
+
+            # Determine text quality based on confidence and length
+            if avg_conf >= 0.8 and len(result['text']) > 10:
+                result['text_quality'] = 'excellent'
+            elif avg_conf >= 0.6 and len(result['text']) > 5:
+                result['text_quality'] = 'good'
+            elif avg_conf >= 0.4 and len(result['text']) > 0:
+                result['text_quality'] = 'fair'
+            else:
+                result['text_quality'] = 'poor'
 
         except Exception as e:
             result['processing_errors'].append(f"Image processing failed: {str(e)}")
