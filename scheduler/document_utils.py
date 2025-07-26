@@ -170,17 +170,17 @@ class DocumentProcessor:
     
     def extract_image_text(self, file_path: str) -> Dict:
         """
-        Extract text from images using OCR (basic implementation)
+        Extract text from images using OCR with pytesseract
         """
         result = {
             'text': '',
             'metadata': {},
             'processing_errors': []
         }
-        
+
         try:
-            # For now, just get image metadata
             with Image.open(file_path) as img:
+                # Extract basic metadata
                 result['metadata'] = {
                     'format': img.format,
                     'mode': img.mode,
@@ -188,12 +188,13 @@ class DocumentProcessor:
                     'width': img.width,
                     'height': img.height
                 }
-                # Note: OCR would require additional libraries like pytesseract
-                result['text'] = "[Image content - OCR not implemented yet]"
-                
+
+                # OCR text extraction
+                result['text'] = pytesseract.image_to_string(img)
+
         except Exception as e:
             result['processing_errors'].append(f"Image processing failed: {str(e)}")
-        
+
         return result
     
     def create_vector_store(self, text: str, document_id: str) -> Optional[object]:
