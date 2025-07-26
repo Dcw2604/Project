@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     LessonViewSet, UserRegistrationView, chat_interaction,
     upload_document, list_documents, get_chat_history,
-    clear_conversation_memory, user_login, user_logout
+    clear_conversation_memory, user_login, user_logout, test_image_upload
 )
 
 # Create a router and register our viewset with it
@@ -29,6 +29,9 @@ urlpatterns = [
     path('upload_document/', upload_document, name="upload_document"),
     path('documents/', list_documents, name="list_documents"),
     path('rag_documents/', list_documents, name="rag_documents"),  # Alias for frontend compatibility
+    
+    # Test endpoints
+    path('test_image/', test_image_upload, name="test_image_upload"),
     
     # Router endpoints (lessons)
     path('', include(router.urls)),

@@ -27,6 +27,7 @@ import {
 import { 
     Send as SendIcon,
     AttachFile as AttachFileIcon,
+    CameraAlt as CameraAltIcon,
     Description as DescriptionIcon,
     Clear as ClearIcon,
     History as HistoryIcon,
@@ -227,9 +228,15 @@ const ChatbotQuestions = () => {
     const [useRAG, setUseRAG] = useState(true);
     const [showScrollToTop, setShowScrollToTop] = useState(false);
     const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+    
+    // Image upload states
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
+    const [isImageProcessing, setIsImageProcessing] = useState(false);
     const messagesEndRef = useRef(null);
     const messagesAreaRef = useRef(null);
     const fileInputRef = useRef(null);
+    const imageInputRef = useRef(null);
     const { authToken } = useAuth();
 
     // Save messages to localStorage whenever messages change
@@ -318,15 +325,18 @@ const ChatbotQuestions = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!newQuestion.trim() || isLoading) return;
+        if ((!newQuestion.trim() && !selectedImage) || isLoading) return;
 
         setIsLoading(true);
+        setIsImageProcessing(!!selectedImage);
 
-        // Add user message immediately
+        // Add user message immediately with image preview if present
         const userMessage = {
             type: 'user',
-            content: newQuestion,
-            timestamp: new Date().toISOString()
+            content: newQuestion || (selectedImage ? 'Uploaded an image' : ''),
+            timestamp: new Date().toISOString(),
+            hasImage: !!selectedImage,
+            imagePreview: imagePreview
         };
 
         setMessages(prev => [...prev, userMessage]);
@@ -334,7 +344,7 @@ const ChatbotQuestions = () => {
         // Add processing message
         const processingMessage = {
             type: 'assistant',
-            content: '🤔 Thinking...',
+            content: selectedImage ? '📷 Processing image and extracting text...' : '🤔 Thinking...',
             timestamp: new Date().toISOString(),
             isProcessing: true
         };
@@ -342,40 +352,69 @@ const ChatbotQuestions = () => {
         setMessages(prev => [...prev, processingMessage]);
 
         try {
-            // Determine the endpoint based on RAG mode and documents
-            const endpoint = useRAG ? 'chat_interaction' : 'chat_interaction';
+            // Determine the endpoint
+            const endpoint = 'chat_interaction';
 
-            const headers = {
-                'Content-Type': 'application/json',
-            };
-
+            // Prepare headers
+            const headers = {};
             if (authToken) {
                 headers['Authorization'] = `Token ${authToken}`;
             }
 
-            // Build request data
-            const requestData = {
-                question: newQuestion,
-                use_rag: useRAG
-            };
+            let requestBody;
+            let requestHeaders = { ...headers };
 
-            // Include selected documents if any
-            if (selectedDocuments.length > 0) {
-                requestData.document_ids = selectedDocuments;
-            };
+            // Check if we have an image to upload
+            if (selectedImage) {
+                // Use FormData for image upload
+                const formData = new FormData();
+                formData.append('question', newQuestion || '');
+                formData.append('image', selectedImage);
+                formData.append('use_rag', useRAG.toString());
+                
+                // Include selected documents if any
+                if (selectedDocuments.length > 0) {
+                    selectedDocuments.forEach(docId => {
+                        formData.append('document_ids', docId);
+                    });
+                }
+
+                requestBody = formData;
+                // Don't set Content-Type for FormData, let browser set it with boundary
+            } else {
+                // Use JSON for text-only requests
+                requestHeaders['Content-Type'] = 'application/json';
+                
+                const requestData = {
+                    question: newQuestion,
+                    use_rag: useRAG
+                };
+
+                // Include selected documents if any
+                if (selectedDocuments.length > 0) {
+                    requestData.document_ids = selectedDocuments;
+                }
+
+                requestBody = JSON.stringify(requestData);
+            }
 
             console.log('Sending request:', {
                 endpoint,
+                hasImage: !!selectedImage,
                 selectedDocuments,
                 documentsCount: uploadedDocuments.length,
-                question: newQuestion.substring(0, 50) + '...'
+                question: newQuestion ? newQuestion.substring(0, 50) + '...' : 'Image only',
+                useFormData: !!selectedImage,
+                formDataEntries: selectedImage ? Array.from(requestBody.entries()).map(([key, value]) => [key, typeof value === 'object' ? `File: ${value.name}` : value]) : 'N/A'
             });
             
             const response = await fetch(`http://127.0.0.1:8000/api/${endpoint}/`, {
                 method: 'POST',
-                headers,
-                body: JSON.stringify(requestData),
+                headers: requestHeaders,
+                body: requestBody,
             });
+
+            const data = await response.json();
 
             if (!response.ok) {
                 if (response.status === 403 || response.status === 401) {
@@ -390,50 +429,85 @@ const ChatbotQuestions = () => {
                     });
                     return;
                 }
+                
+                // Handle OCR-specific errors more gracefully
+                if (data.error && selectedImage) {
+                    setMessages(prev => {
+                        const filteredMessages = prev.filter(msg => !msg.isProcessing);
+                        return [...filteredMessages, {
+                            type: 'error',
+                            content: `📷 Image Processing Issue:\n${data.error}\n\n${data.suggestion || 'Try uploading a clearer image with printed text.'}`,
+                            timestamp: new Date().toISOString(),
+                            ocrMetadata: data.ocr_metadata,
+                            processingErrors: data.processing_errors
+                        }];
+                    });
+                    return;
+                }
+                
                 throw new Error(`Network response was not ok: ${response.status}`);
             }
-
-            const data = await response.json();
             
             console.log('Received response:', {
                 source: data.source,
                 documentsUsed: data.documents_used,
-                hasAnswer: !!data.answer
+                hasAnswer: !!data.answer,
+                hasExtractedText: !!data.extracted_text,
+                ocrConfidence: data.ocr_metadata?.overall_confidence
             });
             
             // Create the bot response message
-            const botMessage = {
+            let botMessage = {
                 type: data.source === 'document_rag' || data.source === 'documents' ? 'document' : 'assistant',
                 content: data.answer,
                 timestamp: new Date().toISOString(),
                 source: data.source,
                 documentsUsed: data.documents_used || [],
                 processingInfo: data.processing_info,
-                chatId: data.chat_id // Include chatId for consistency
+                chatId: data.chat_id,
+                extractedText: data.extracted_text,
+                ocrMetadata: data.ocr_metadata
             };
 
-            // Replace processing message with actual response, or just add the response
+            // If we have extracted text from image, show it in a special format
+            if (data.extracted_text && selectedImage) {
+                const confidence = data.ocr_metadata?.overall_confidence || 0;
+                const quality = data.ocr_metadata?.text_quality || 'unknown';
+                
+                botMessage.content = `📷 **Image Text Extracted** (Confidence: ${confidence.toFixed(1)}%, Quality: ${quality})\n\n**Extracted Text:**\n"${data.extracted_text}"\n\n**AI Response:**\n${data.answer}`;
+            } else if (selectedImage && data.ocr_feedback) {
+                // Show OCR feedback when no text was extracted but processing continued
+                botMessage.content = `📷 **Image Processing Note:**\n${data.ocr_feedback}\n\n**AI Response to your question:**\n${data.answer}`;
+                botMessage.type = 'assistant'; // Use regular assistant styling
+            }
+            
+            // Remove processing message and add bot response
             setMessages(prev => {
-                // Remove any processing messages and add the final response
                 const filteredMessages = prev.filter(msg => !msg.isProcessing);
                 return [...filteredMessages, botMessage];
             });
-            
-            setNewQuestion('');
 
         } catch (error) {
             console.error('Error:', error);
+            
             // Remove processing message and add error message
             setMessages(prev => {
                 const filteredMessages = prev.filter(msg => !msg.isProcessing);
                 return [...filteredMessages, {
                     type: 'error',
-                    content: 'Sorry, there was an error processing your question. Please try again.',
+                    content: `Error: ${error.message}. Please check your connection and try again.`,
                     timestamp: new Date().toISOString()
                 }];
             });
         } finally {
             setIsLoading(false);
+            setIsImageProcessing(false);
+            setNewQuestion('');
+            
+            // Clear image after sending
+            if (selectedImage) {
+                handleRemoveImage();
+            }
         }
     };
 
@@ -494,6 +568,48 @@ const ChatbotQuestions = () => {
             }]);
         } finally {
             setIsUploading(false);
+        }
+    };
+
+    // Image upload handling functions
+    const handleImageSelect = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            // Validate file type
+            const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp'];
+            if (!validTypes.includes(file.type)) {
+                alert('Please select a valid image file (JPEG, PNG, GIF, or BMP)');
+                return;
+            }
+
+            // Validate file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                alert('Image file size must be less than 10MB');
+                return;
+            }
+
+            setSelectedImage(file);
+            
+            // Create preview
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                setImagePreview(e.target.result);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleRemoveImage = () => {
+        setSelectedImage(null);
+        setImagePreview(null);
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
+    };
+
+    const handleImageClick = () => {
+        if (imageInputRef.current) {
+            imageInputRef.current.click();
         }
     };
 
@@ -577,7 +693,41 @@ const ChatbotQuestions = () => {
                     variant={message.type} 
                     elevation={1}
                 >
+                    {/* Show image preview for user messages with images */}
+                    {message.hasImage && message.imagePreview && (
+                        <Box sx={{ mb: 1 }}>
+                            <img 
+                                src={message.imagePreview} 
+                                alt="Uploaded" 
+                                style={{ 
+                                    maxWidth: '200px', 
+                                    maxHeight: '200px', 
+                                    borderRadius: '8px',
+                                    objectFit: 'contain'
+                                }} 
+                            />
+                        </Box>
+                    )}
+                    
                     <Typography>{message.content}</Typography>
+                    
+                    {/* Show extracted text info for OCR responses */}
+                    {message.extractedText && (
+                        <Box sx={{ mt: 1, p: 1, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 1 }}>
+                            <Typography variant="caption" color="text.secondary">
+                                📷 Extracted from image:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.5 }}>
+                                "{message.extractedText}"
+                            </Typography>
+                            {message.ocrMetadata && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                    Confidence: {message.ocrMetadata.overall_confidence?.toFixed(1)}%, 
+                                    Quality: {message.ocrMetadata.text_quality}
+                                </Typography>
+                            )}
+                        </Box>
+                    )}
                     
                     {/* Show document info for document-based responses */}
                     {message.documentsUsed && message.documentsUsed.length > 0 && (
@@ -1109,6 +1259,54 @@ const ChatbotQuestions = () => {
                         accept=".pdf,.txt,.doc,.docx"
                     />
                     
+                    <input
+                        type="file"
+                        ref={imageInputRef}
+                        onChange={handleImageSelect}
+                        style={{ display: 'none' }}
+                        accept="image/*"
+                    />
+                    
+                    {/* Image preview area */}
+                    {imagePreview && (
+                        <Box sx={{ 
+                            mb: 2, 
+                            p: 2, 
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            borderRadius: 2,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 2
+                        }}>
+                            <img 
+                                src={imagePreview} 
+                                alt="Preview" 
+                                style={{ 
+                                    maxWidth: '100px', 
+                                    maxHeight: '100px', 
+                                    borderRadius: '8px',
+                                    objectFit: 'contain'
+                                }} 
+                            />
+                            <Box sx={{ flex: 1 }}>
+                                <Typography variant="body2" color="text.secondary">
+                                    📷 Image ready for upload
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    {selectedImage?.name} ({(selectedImage?.size / 1024).toFixed(1)} KB)
+                                </Typography>
+                            </Box>
+                            <IconButton 
+                                onClick={handleRemoveImage}
+                                size="small"
+                                title="Remove image"
+                                sx={{ color: 'error.main' }}
+                            >
+                                <ClearIcon />
+                            </IconButton>
+                        </Box>
+                    )}
+                    
                     <IconButton
                         onClick={() => fileInputRef.current?.click()}
                         title="Upload document"
@@ -1128,20 +1326,42 @@ const ChatbotQuestions = () => {
                         <AttachFileIcon />
                     </IconButton>
                     
+                    <IconButton
+                        onClick={handleImageClick}
+                        title="Upload image for OCR"
+                        size="large"
+                        disabled={isLoading || isUploading}
+                        sx={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                            color: '#667eea',
+                            ml: 1,
+                            '&:hover': {
+                                backgroundColor: 'rgba(255, 255, 255, 1)',
+                                transform: 'scale(1.05)'
+                            }
+                        }}
+                    >
+                        <CameraAltIcon />
+                    </IconButton>
+                    
                     <TextField
                         fullWidth
                         multiline
                         maxRows={4}
                         value={newQuestion}
                         onChange={(e) => setNewQuestion(e.target.value)}
-                        placeholder={selectedDocuments.length > 0 
-                            ? `Ask about: ${selectedDocuments.map(id => {
-                                const doc = uploadedDocuments.find(d => d.id.toString() === id);
-                                return doc ? doc.title : 'document';
-                            }).join(', ')}...` 
-                            : uploadedDocuments.length > 0 
-                                ? "Select documents above or ask general questions..."
-                                : "Ask me anything about math, general topics, or upload a document first..."
+                        placeholder={selectedImage
+                            ? "Add a question about your image, or send it as-is for text extraction..."
+                            : selectedDocuments.length > 0 
+                                ? `Ask about: ${selectedDocuments.map(id => {
+                                    const doc = uploadedDocuments.find(d => d.id.toString() === id);
+                                    return doc ? doc.title : 'document';
+                                }).join(', ')}...` 
+                                : uploadedDocuments.length > 0 
+                                    ? "Select documents above, upload an image (📷), or ask general questions..."
+                                    : "Ask me anything, upload a document (📎), or upload an image (📷) for text extraction..."
                         }
                         disabled={isLoading || isUploading}
                         onKeyDown={(e) => {

@@ -157,3 +157,64 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Tesseract OCR Configuration
+# Configure pytesseract path for Windows installation
+try:
+    import pytesseract
+    
+    # Common Tesseract installation paths on Windows
+    TESSERACT_PATHS = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        r'C:\Users\{}\AppData\Local\Tesseract-OCR\tesseract.exe'.format(os.getenv('USERNAME', 'Default')),
+        r'C:\tesseract\tesseract.exe',
+        r'C:\tools\tesseract\tesseract.exe',
+    ]
+    
+    # Try to find and set the correct Tesseract path
+    tesseract_found = False
+    for path in TESSERACT_PATHS:
+        if os.path.exists(path):
+            pytesseract.pytesseract.tesseract_cmd = path
+            print(f"✅ Tesseract found and configured at: {path}")
+            tesseract_found = True
+            break
+    
+    if not tesseract_found:
+        print("❌ Tesseract executable not found in common locations.")
+        print("📥 Please download and install Tesseract from:")
+        print("   https://github.com/UB-Mannheim/tesseract/wiki")
+        print("🔧 After installation, restart Django server.")
+        
+        # Try to use system PATH
+        print("🔍 Trying to use Tesseract from system PATH...")
+        try:
+            version = pytesseract.get_tesseract_version()
+            print(f"✅ Tesseract found in PATH - Version: {version}")
+            tesseract_found = True
+        except Exception as e:
+            print(f"❌ Tesseract not found in PATH: {e}")
+    
+    # Test Tesseract functionality if found
+    if tesseract_found:
+        try:
+            version = pytesseract.get_tesseract_version()
+            print(f"🎉 Tesseract OCR ready - Version: {version}")
+        except Exception as e:
+            print(f"⚠️ Tesseract configured but test failed: {e}")
+            
+except ImportError:
+    print("❌ pytesseract not installed. Install with: pip install pytesseract")
+except Exception as e:
+    print(f"⚠️ Tesseract configuration error: {e}")
+
+# OCR Processing Settings
+OCR_SETTINGS = {
+    'MAX_IMAGE_SIZE_MB': 10,  # Maximum image size for OCR processing
+    'OCR_TIMEOUT': 30,        # OCR processing timeout in seconds
+    'OCR_LANGUAGES': 'eng',   # Default OCR language(s)
+    'OCR_CONFIDENCE_THRESHOLD': 30,  # Minimum confidence for text regions
+}
+
+print("🔧 Django settings loaded successfully")
