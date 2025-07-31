@@ -15,7 +15,9 @@ import {
   Stack,
   Chip,
   Alert,
-  Grid
+  Stepper,
+  Step,
+  StepLabel
 } from '@mui/material';
 import { 
   PlayArrow, 
@@ -30,7 +32,7 @@ import {
 } from '@mui/icons-material';
 
 const StyledContainer = styled(Container)(({ theme }) => ({
-  height: 'calc(100vh - 80px)',
+  height: 'calc(100vh - 80px)', // Account for header height
   paddingTop: '2rem',
   paddingBottom: '2rem',
   background: 'transparent',
@@ -237,6 +239,9 @@ const LevelTest = () => {
       }
     ]
   };
+
+  const getQuestionsForLevel = () => {
+    return mathQuestions[selectedLevel] || [];
 
   const getQuestionsForLevel = () => {
     return mathQuestions[selectedLevel] || [];
@@ -520,19 +525,18 @@ const LevelTest = () => {
                 </ActionButton>
               </Stack>
             </Stack>
-            
             <LinearProgress 
               variant="determinate" 
               value={progress} 
-              sx={{
-                height: 8,
+              sx={{ 
+                height: 8, 
                 borderRadius: 4,
                 bgcolor: 'rgba(255, 255, 255, 0.2)',
                 '& .MuiLinearProgress-bar': {
                   borderRadius: 4,
                   bgcolor: '#10B981'
                 }
-              }}
+              }} 
             />
           </CardContent>
         </GlassCard>
@@ -541,6 +545,73 @@ const LevelTest = () => {
         <QuestionCard>
           <CardContent sx={{ p: 4 }}>
             <Typography variant="h5" fontWeight={600} mb={4} lineHeight={1.6}>
+              {question.question}
+            </Typography>
+            
+            <RadioGroup
+              value={answers[question.id] || ''}
+              onChange={(e) => handleAnswerChange(question.id, parseInt(e.target.value))}
+            >
+              {question.options.map((option, index) => (
+                <FormControlLabel
+                  key={index}
+                  value={index}
+                  control={<Radio sx={{ color: 'rgba(255, 255, 255, 0.7)', '&.Mui-checked': { color: '#10B981' } }} />}
+                  label={
+                    <Typography variant="body1" sx={{ fontSize: '1.1rem', py: 1 }}>
+                      {option}
+                    </Typography>
+                  }
+                  sx={{ 
+                    py: 1, 
+                    px: 2, 
+                    mx: 0,
+                    borderRadius: 2,
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      bgcolor: 'rgba(255, 255, 255, 0.1)'
+                    }
+                  }}
+                />
+              ))}
+            </RadioGroup>
+          </CardContent>
+        </QuestionCard>
+
+        {/* Navigation */}
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <ActionButton 
+            onClick={handlePrevious}
+            disabled={currentQuestion === 0}
+            sx={{ opacity: currentQuestion === 0 ? 0.5 : 1 }}
+          >
+            Previous
+          </ActionButton>
+          
+          <Typography variant="body2" color="rgba(255, 255, 255, 0.7)">
+            {Object.keys(answers).length} of {questions.length} answered
+          </Typography>
+          
+          <ActionButton 
+            onClick={handleNext}
+            disabled={answers[question.id] === undefined}
+            sx={{ 
+              opacity: answers[question.id] === undefined ? 0.5 : 1,
+              bgcolor: currentQuestion === questions.length - 1 ? '#10B981' : undefined
+            }}
+          >
+            {currentQuestion === questions.length - 1 ? 'Finish Test' : 'Next'}
+          </ActionButton>
+        </Stack>
+      </>
+    );
+  };
+        </GlassCard>
+
+        {/* Question */}
+        <QuestionCard>
+          <CardContent sx={{ p: 4 }}>
+            <Typography variant="h5" fontWeight={600} mb={4}>
               {question.question}
             </Typography>
             
@@ -611,7 +682,7 @@ const LevelTest = () => {
           Test Complete!
         </Typography>
         <Typography variant="h6" sx={{ opacity: 0.9 }}>
-          Here are your results for Level {testResult.selectedLevel}
+          Here are your results
         </Typography>
       </HeaderCard>
 
@@ -666,7 +737,7 @@ const LevelTest = () => {
               Retake Test
             </ActionButton>
             <ActionButton startIcon={<TrendingUp />}>
-              View Progress
+              View Recommendations
             </ActionButton>
           </Stack>
         </CardContent>
@@ -681,7 +752,7 @@ const LevelTest = () => {
           '& .MuiAlert-icon': { color: '#3B82F6' }
         }}
       >
-        Based on your results, we'll recommend math courses that match your {testResult.level.toLowerCase()} level to help you progress effectively.
+        Based on your results, we'll recommend courses that match your {testResult.level.toLowerCase()} level to help you progress effectively.
       </Alert>
     </>
   );
