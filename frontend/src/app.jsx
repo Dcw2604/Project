@@ -19,17 +19,9 @@ import ChatbotQuestions from './components/dashboard/student/ChatbotQuestions';
 import StudentClasses from './components/dashboard/student/StudentClasses';
 import LevelTest from './components/dashboard/student/LevelTest';
 import CheckLevel from './components/dashboard/student/CheckLevel';
+import TeacherDashboard from './components/dashboard/teacher/TeacherDashboard';
 import { useAuth } from './hooks/useAuth';
 import './styles/globals.css';
-
-// Simple TeacherDashboard placeholder
-const TeacherDashboard = ({ user, setCurrentPage }) => (
-  <Paper elevation={3} sx={{ p: 4, mt: 4, maxWidth: 600, width: '100%', textAlign: 'center' }}>
-    <Typography variant="h5" fontWeight={700} mb={2}>Welcome, {user?.name}</Typography>
-    <Typography variant="body1" mb={4}>Teacher Dashboard (Coming Soon)</Typography>
-    <Button color="inherit" onClick={() => setCurrentPage('landing')}>Logout</Button>
-  </Paper>
-);
 
 // Create a theme instance
 const theme = createTheme({
@@ -85,8 +77,14 @@ const App = () => {
   };
 
   const renderCurrentPage = () => {
-    // If user is authenticated, show dashboard content
+    // If user is authenticated, show appropriate dashboard
     if (isAuthenticated && user) {
+      // Check if user is a teacher
+      if (user.role === 'teacher') {
+        return <TeacherDashboard />;
+      }
+      
+      // Default to student dashboard with tabs
       return (
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%', overflow: 'hidden' }}>
           {renderDashboardContent()}
@@ -177,59 +175,62 @@ const App = () => {
           </Typography>
           {isAuthenticated ? (
             <>
-              <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'center', mx: 4 }}>
-                <Tabs 
-                  value={activeTab} 
-                  onChange={handleTabChange}
-                  textColor="inherit"
-                  TabIndicatorProps={{
-                    style: {
-                      backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                      height: '3px',
-                      borderRadius: '2px'
-                    }
-                  }}
-                  sx={{
-                    '& .MuiTab-root': {
-                      color: 'rgba(255, 255, 255, 0.7)',
-                      fontWeight: 600,
-                      fontSize: '0.95rem',
-                      textTransform: 'none',
-                      minWidth: '120px',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        color: 'rgba(255, 255, 255, 0.9)',
-                        transform: 'translateY(-2px)'
-                      },
-                      '&.Mui-selected': {
-                        color: '#ffffff',
-                        fontWeight: 700
+              {/* Only show navigation tabs for students */}
+              {user && user.role === 'student' && (
+                <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'center', mx: 4 }}>
+                  <Tabs 
+                    value={activeTab} 
+                    onChange={handleTabChange}
+                    textColor="inherit"
+                    TabIndicatorProps={{
+                      style: {
+                        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                        height: '3px',
+                        borderRadius: '2px'
                       }
-                    }
-                  }}
-                >
-                  <Tab 
-                    icon={<Chat sx={{ fontSize: '1.2rem' }} />} 
-                    label="AI Chatbot" 
-                    iconPosition="start"
-                  />
-                  <Tab 
-                    icon={<Schedule sx={{ fontSize: '1.2rem' }} />} 
-                    label="My Classes" 
-                    iconPosition="start"
-                  />
-                  <Tab 
-                    icon={<Assignment sx={{ fontSize: '1.2rem' }} />} 
-                    label="Level Test" 
-                    iconPosition="start"
-                  />
-                  <Tab 
-                    icon={<TrendingUp sx={{ fontSize: '1.2rem' }} />} 
-                    label="Progress" 
-                    iconPosition="start"
-                  />
-                </Tabs>
-              </Box>
+                    }}
+                    sx={{
+                      '& .MuiTab-root': {
+                        color: 'rgba(255, 255, 255, 0.7)',
+                        fontWeight: 600,
+                        fontSize: '0.95rem',
+                        textTransform: 'none',
+                        minWidth: '120px',
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          transform: 'translateY(-2px)'
+                        },
+                        '&.Mui-selected': {
+                          color: '#ffffff',
+                          fontWeight: 700
+                        }
+                      }
+                    }}
+                  >
+                    <Tab 
+                      icon={<Chat sx={{ fontSize: '1.2rem' }} />} 
+                      label="AI Chatbot" 
+                      iconPosition="start"
+                    />
+                    <Tab 
+                      icon={<Schedule sx={{ fontSize: '1.2rem' }} />} 
+                      label="My Classes" 
+                      iconPosition="start"
+                    />
+                    <Tab 
+                      icon={<Assignment sx={{ fontSize: '1.2rem' }} />} 
+                      label="Level Test" 
+                      iconPosition="start"
+                    />
+                    <Tab 
+                      icon={<TrendingUp sx={{ fontSize: '1.2rem' }} />} 
+                      label="Progress" 
+                      iconPosition="start"
+                    />
+                  </Tabs>
+                </Box>
+              )}
               <Button 
                 color="inherit" 
                 variant="outlined" 
@@ -708,9 +709,31 @@ const StudentSignUp = ({ setCurrentPage }) => {
 
 // Teacher Portal (Sign In)
 const TeacherPortal = ({ setCurrentPage }) => {
-  const handleLogin = () => {
-    alert('Teacher login functionality coming soon!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const { loginWithCredentials } = useAuth();
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const result = await loginWithCredentials(email, password);
+      if (result.success) {
+        setCurrentPage('dashboard'); // Navigate to dashboard after successful login
+      } else {
+        setError(result.error || 'Invalid credentials');
+      }
+    } catch (err) {
+      setError('Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
+
   return (
     <GlassCard elevation={0} sx={{ p: 5, mt: 4, maxWidth: 450, width: '100%', color: 'white' }}>
       <Typography variant="h4" fontWeight={800} mb={1} textAlign="center" sx={{
@@ -725,52 +748,69 @@ const TeacherPortal = ({ setCurrentPage }) => {
         Empower your teaching with AI
       </Typography>
       
-      <Stack spacing={3} mb={4}>
-        <TextField 
-          label="Email" 
-          variant="outlined" 
-          fullWidth
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              bgcolor: 'rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)',
-              borderRadius: '12px',
-              '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-              '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-              '&.Mui-focused fieldset': { borderColor: 'rgba(255, 255, 255, 0.7)' }
-            },
-            '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.8)' },
-            '& .MuiOutlinedInput-input': { color: 'white' }
-          }}
-        />
-        <TextField 
-          label="Password" 
-          type="password" 
-          variant="outlined" 
-          fullWidth
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              bgcolor: 'rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)',
-              borderRadius: '12px',
-              '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-              '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-              '&.Mui-focused fieldset': { borderColor: 'rgba(255, 255, 255, 0.7)' }
-            },
-            '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.8)' },
-            '& .MuiOutlinedInput-input': { color: 'white' }
-          }}
-        />
-      </Stack>
+      {error && (
+        <Alert severity="error" sx={{ mb: 3, bgcolor: 'rgba(244, 67, 54, 0.1)', color: 'white' }}>
+          {error}
+        </Alert>
+      )}
       
-      <ActionButton 
-        size="large" 
-        onClick={handleLogin} 
-        fullWidth
-        sx={{ mb: 2, py: 2 }}
-      >
-        🚀 Sign In
-      </ActionButton>
+      <form onSubmit={handleLogin}>
+        <Stack spacing={3} mb={4}>
+          <TextField 
+            label="Email or Username" 
+            variant="outlined" 
+            fullWidth
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={loading}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '12px',
+                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
+                '&.Mui-focused fieldset': { borderColor: 'rgba(255, 255, 255, 0.7)' }
+              },
+              '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.8)' },
+              '& .MuiOutlinedInput-input': { color: 'white' }
+            }}
+          />
+          <TextField 
+            label="Password" 
+            type="password" 
+            variant="outlined" 
+            fullWidth
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            disabled={loading}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '12px',
+                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
+                '&.Mui-focused fieldset': { borderColor: 'rgba(255, 255, 255, 0.7)' }
+              },
+              '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.8)' },
+              '& .MuiOutlinedInput-input': { color: 'white' }
+            }}
+          />
+        </Stack>
+        
+        <ActionButton 
+          type="submit"
+          size="large" 
+          fullWidth
+          disabled={loading || !email || !password}
+          sx={{ mb: 2, py: 2 }}
+        >
+          {loading ? '🔄 Signing In...' : '🚀 Sign In'}
+        </ActionButton>
+      </form>
       
       <Stack spacing={1} alignItems="center">
         <Button 

@@ -914,6 +914,7 @@ def clear_conversation_memory(request):
 def user_login(request):
     """
     Login view that returns authentication token
+    Supports username or email authentication
     """
     username = request.data.get('username')
     password = request.data.get('password')
@@ -923,8 +924,20 @@ def user_login(request):
             'error': 'Username and password are required'
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    # Authenticate user
+    # Try to authenticate user
+    user = None
+    
+    # First, try direct username authentication
     user = authenticate(username=username, password=password)
+    
+    # If that fails and the input looks like an email, try email-based authentication
+    if not user and '@' in username:
+        try:
+            # Find user by email and try to authenticate with their username
+            user_obj = User.objects.get(email=username)
+            user = authenticate(username=user_obj.username, password=password)
+        except User.DoesNotExist:
+            pass
     
     if user:
         # Get or create token for user
