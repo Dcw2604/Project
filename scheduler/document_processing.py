@@ -357,6 +357,188 @@ class DocumentProcessor:
                 'method': 'error',
                 'sources': []
             }
+    
+    def generate_questions_from_document(self, document_id: int, difficulty_levels: List[str] = ['3', '4', '5'], 
+                                       questions_per_level: int = 5) -> Dict[str, Any]:
+        """
+        Generate questions from a document using Llama model
+        """
+        try:
+            from .models import Document, QuestionBank
+            
+            # Get document
+            document = Document.objects.get(id=document_id)
+            if not document.extracted_text:
+                return {'success': False, 'error': 'No extracted text found in document'}
+            
+            # Split text into chunks for processing
+            text_chunks = self.text_splitter.split_text(document.extracted_text)
+            
+            generated_questions = []
+            
+            for difficulty in difficulty_levels:
+                difficulty_name = {'3': 'Basic', '4': 'Intermediate', '5': 'Advanced'}[difficulty]
+                
+                for chunk in text_chunks[:3]:  # Limit to first 3 chunks to avoid too many questions
+                    questions = self._generate_questions_for_chunk(
+                        chunk, difficulty, difficulty_name, questions_per_level // 3
+                    )
+                    
+                    for q_data in questions:
+                        # Create QuestionBank entry
+                        question = QuestionBank.objects.create(
+                            document=document,
+                            question_text=q_data['question'],
+                            question_type=q_data['type'],
+                            difficulty_level=difficulty,
+                            subject='math',  # Default subject
+                            option_a=q_data.get('option_a'),
+                            option_b=q_data.get('option_b'),
+                            option_c=q_data.get('option_c'),
+                            option_d=q_data.get('option_d'),
+                            correct_answer=q_data['correct_answer'],
+                            explanation=q_data.get('explanation', ''),
+                            is_approved=True,
+                            created_by_ai=True
+                        )
+                        generated_questions.append(question.id)
+            
+            return {
+                'success': True,
+                'questions_generated': len(generated_questions),
+                'question_ids': generated_questions
+            }
+            
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def _generate_questions_for_chunk(self, text_chunk: str, difficulty_level: str, 
+                                    difficulty_name: str, num_questions: int = 2) -> List[Dict]:
+        """Generate questions for a specific text chunk"""
+        
+        if not self.llm:
+            # Fallback to hardcoded questions if LLM not available
+            return self._generate_fallback_questions(text_chunk, difficulty_level, num_questions)
+        
+        prompt = f"""
+        Based on the following mathematical content, generate {num_questions} multiple choice questions at {difficulty_name} level.
+        
+        Content:
+        {text_chunk}
+        
+        For each question, provide:
+        1. A clear question
+        2. Four options (A, B, C, D)
+        3. The correct answer (A, B, C, or D)
+        4. A brief explanation
+        
+        Format your response as JSON:
+        {{
+            "questions": [
+                {{
+                    "question": "Question text here",
+                    "option_a": "Option A text",
+                    "option_b": "Option B text", 
+                    "option_c": "Option C text",
+                    "option_d": "Option D text",
+                    "correct_answer": "A",
+                    "explanation": "Explanation here",
+                    "type": "multiple_choice"
+                }}
+            ]
+        }}
+        
+        Ensure questions are appropriate for {difficulty_name} level mathematics.
+        """
+        
+        try:
+            response = self.llm.invoke(prompt)
+            # Try to parse JSON response
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                json_data = json.loads(json_match.group())
+                return json_data.get('questions', [])
+            else:
+                # Fallback if JSON parsing fails
+                return self._generate_fallback_questions(text_chunk, difficulty_level, num_questions)
+                
+        except Exception as e:
+            print(f"Error generating questions: {e}")
+            return self._generate_fallback_questions(text_chunk, difficulty_level, num_questions)
+    
+    def _generate_fallback_questions(self, text_chunk: str, difficulty_level: str, num_questions: int) -> List[Dict]:
+        """Generate fallback questions when LLM is not available"""
+        
+        difficulty_templates = {
+            '3': [
+                {
+                    'question': 'What is the basic concept discussed in this text?',
+                    'option_a': 'Addition',
+                    'option_b': 'Subtraction', 
+                    'option_c': 'Multiplication',
+                    'option_d': 'Division',
+                    'correct_answer': 'A',
+                    'explanation': 'This is a basic mathematical concept.',
+                    'type': 'multiple_choice'
+                }
+            ],
+            '4': [
+                {
+                    'question': 'Which intermediate concept is most relevant to this material?',
+                    'option_a': 'Linear equations',
+                    'option_b': 'Quadratic functions',
+                    'option_c': 'Trigonometry',
+                    'option_d': 'Calculus',
+                    'correct_answer': 'B',
+                    'explanation': 'This involves intermediate mathematical concepts.',
+                    'type': 'multiple_choice'
+                }
+            ],
+            '5': [
+                {
+                    'question': 'What advanced mathematical principle is demonstrated?',
+                    'option_a': 'Complex analysis',
+                    'option_b': 'Differential equations',
+                    'option_c': 'Abstract algebra',
+                    'option_d': 'Number theory',
+                    'correct_answer': 'A',
+                    'explanation': 'This requires advanced mathematical understanding.',
+                    'type': 'multiple_choice'
+                }
+            ]
+        }
+        
+        templates = difficulty_templates.get(difficulty_level, difficulty_templates['3'])
+        return templates[:num_questions]
+    
+    def get_rag_answer_for_question(self, question_text: str, document_id: int) -> str:
+        """
+        Use RAG to get an answer/explanation for a question based on document content
+        """
+        try:
+            from .models import Document
+            
+            document = Document.objects.get(id=document_id)
+            if not document.extracted_text:
+                return "No document content available for explanation."
+            
+            # Create vector store for this document if not exists
+            vector_store = self._get_or_create_vector_store(document)
+            
+            if not vector_store:
+                return "Unable to process document for explanation."
+            
+            # Query the document for answer
+            query_result = self.query_document(document_id, question_text)
+            
+            if query_result.get('method') == 'rag' and query_result.get('answer'):
+                return query_result['answer']
+            else:
+                return "Unable to generate explanation from document content."
+                
+        except Exception as e:
+            return f"Error generating explanation: {str(e)}"
 
 
 # Global instance

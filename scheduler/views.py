@@ -13,7 +13,7 @@ from rest_framework import generics, permissions, viewsets, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .serializers import UserRegistrationSerializer, LessonSerializer
+from .serializers import UserRegistrationSerializer, LessonSerializer, DocumentSerializer, DocumentUploadSerializer, QuestionBankSerializer, QuestionBankCreateSerializer, TestSessionSerializer, TestSessionCreateSerializer, StudentAnswerSerializer
 from .models import User, Lesson, ChatInteraction, Document
 from .document_utils import document_processor, process_uploaded_document
 from sympy import sympify
@@ -914,7 +914,7 @@ def clear_conversation_memory(request):
 def user_login(request):
     """
     Login view that returns authentication token
-    Supports username or email authentication
+    Uses username-only authentication for both students and teachers
     """
     username = request.data.get('username')
     password = request.data.get('password')
@@ -924,24 +924,20 @@ def user_login(request):
             'error': 'Username and password are required'
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    # Try to authenticate user
-    user = None
+    print(f"DEBUG: Login attempt - username: {username}")
     
-    # First, try direct username authentication
+    # Simple username/password authentication only
     user = authenticate(username=username, password=password)
     
-    # If that fails and the input looks like an email, try email-based authentication
-    if not user and '@' in username:
-        try:
-            # Find user by email and try to authenticate with their username
-            user_obj = User.objects.get(email=username)
-            user = authenticate(username=user_obj.username, password=password)
-        except User.DoesNotExist:
-            pass
-    
+    print(f"DEBUG: Authentication result - user: {user}")
     if user:
+        print(f"DEBUG: User details - username: {user.username}, role: {user.role}, active: {user.is_active}")
+    
+    if user and user.is_active:
         # Get or create token for user
         token, created = Token.objects.get_or_create(user=user)
+        
+        print(f"DEBUG: Login successful for user: {user.username}, role: {user.role}")
         
         return Response({
             'token': token.key,
@@ -949,10 +945,18 @@ def user_login(request):
                 'id': user.id,
                 'username': user.username,
                 'role': user.role,
-                'email': user.email
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name
             }
         })
     else:
+        print(f"DEBUG: Login failed for username: {username}")
+        if user:
+            print(f"DEBUG: User found but not active: {user.is_active}")
+        else:
+            print(f"DEBUG: No user found with username: {username}")
+        
         return Response({
             'error': 'Invalid credentials'
         }, status=status.HTTP_401_UNAUTHORIZED)
@@ -1024,3 +1028,437 @@ def test_image_upload(request):
             "error": str(e),
             "error_type": type(e).__name__
         }, status=500)
+
+# ===== NEW VIEWS FOR DOCUMENT UPLOAD AND QUESTION MANAGEMENT =====
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_document(request):
+    """Handle document upload for teachers"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can upload documents'}, status=403)
+    
+    try:
+        from .serializers import DocumentUploadSerializer
+        
+        serializer = DocumentUploadSerializer(data=request.data)
+        if serializer.is_valid():
+            file = serializer.validated_data['file']
+            title = serializer.validated_data['title']
+            
+            # Determine document type
+            file_extension = file.name.lower().split('.')[-1]
+            document_type = 'pdf' if file_extension == 'pdf' else 'image' if file_extension in ['jpg', 'jpeg', 'png'] else 'text'
+            
+            # Save file
+            import os
+            from django.conf import settings
+            
+            # Create uploads directory if it doesn't exist
+            upload_dir = os.path.join(settings.BASE_DIR, 'media', 'documents')
+            os.makedirs(upload_dir, exist_ok=True)
+            
+            # Generate unique filename
+            import uuid
+            unique_filename = f"{uuid.uuid4()}_{file.name}"
+            file_path = os.path.join(upload_dir, unique_filename)
+            
+            # Save file to disk
+            with open(file_path, 'wb+') as destination:
+                for chunk in file.chunks():
+                    destination.write(chunk)
+            
+            # Create document record
+            document = Document.objects.create(
+                uploaded_by=request.user,
+                title=title,
+                document_type=document_type,
+                file_path=file_path,
+                processing_status='pending'
+            )
+            
+            # Process document in background
+            process_document_and_generate_questions.delay(document.id)
+            
+            return Response({
+                'success': True,
+                'document_id': document.id,
+                'message': 'Document uploaded successfully. Processing will begin shortly.'
+            })
+        else:
+            return Response({'error': serializer.errors}, status=400)
+            
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_documents(request):
+    """List all documents uploaded by the teacher"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can view documents'}, status=403)
+    
+    try:
+        from .serializers import DocumentSerializer
+        
+        documents = Document.objects.filter(uploaded_by=request.user)
+        serializer = DocumentSerializer(documents, many=True)
+        return Response({'documents': serializer.data})
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_document(request, document_id):
+    """Delete a document and all its associated questions"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can delete documents'}, status=403)
+    
+    try:
+        document = Document.objects.get(id=document_id, uploaded_by=request.user)
+        
+        # Delete associated file
+        if os.path.exists(document.file_path):
+            os.unlink(document.file_path)
+        
+        # Delete document (questions will be cascade deleted)
+        document.delete()
+        
+        return Response({'success': True, 'message': 'Document deleted successfully'})
+        
+    except Document.DoesNotExist:
+        return Response({'error': 'Document not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_questions(request):
+    """List all generated questions, optionally filtered by difficulty level"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can view questions'}, status=403)
+    
+    try:
+        from .models import QuestionBank
+        from .serializers import QuestionBankSerializer
+        
+        # Get query parameters
+        difficulty_level = request.GET.get('difficulty_level')
+        document_id = request.GET.get('document_id')
+        
+        # Filter questions
+        questions = QuestionBank.objects.filter(document__uploaded_by=request.user)
+        
+        if difficulty_level:
+            questions = questions.filter(difficulty_level=difficulty_level)
+        if document_id:
+            questions = questions.filter(document_id=document_id)
+        
+        serializer = QuestionBankSerializer(questions, many=True)
+        return Response({'questions': serializer.data})
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_question(request):
+    """Create a new question manually"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can create questions'}, status=403)
+    
+    try:
+        from .models import QuestionBank
+        from .serializers import QuestionBankCreateSerializer
+        
+        serializer = QuestionBankCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            question = serializer.save(created_by_ai=False, modified_by_teacher=True)
+            
+            response_serializer = QuestionBankSerializer(question)
+            return Response({
+                'success': True,
+                'question': response_serializer.data
+            })
+        else:
+            return Response({'error': serializer.errors}, status=400)
+            
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def update_question(request, question_id):
+    """Update an existing question"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can update questions'}, status=403)
+    
+    try:
+        from .models import QuestionBank
+        from .serializers import QuestionBankSerializer
+        
+        question = QuestionBank.objects.get(
+            id=question_id, 
+            document__uploaded_by=request.user
+        )
+        
+        serializer = QuestionBankSerializer(question, data=request.data, partial=True)
+        if serializer.is_valid():
+            question = serializer.save(modified_by_teacher=True)
+            
+            return Response({
+                'success': True,
+                'question': serializer.data
+            })
+        else:
+            return Response({'error': serializer.errors}, status=400)
+            
+    except QuestionBank.DoesNotExist:
+        return Response({'error': 'Question not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_question(request, question_id):
+    """Delete a question"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can delete questions'}, status=403)
+    
+    try:
+        from .models import QuestionBank
+        
+        question = QuestionBank.objects.get(
+            id=question_id, 
+            document__uploaded_by=request.user
+        )
+        question.delete()
+        
+        return Response({'success': True, 'message': 'Question deleted successfully'})
+        
+    except QuestionBank.DoesNotExist:
+        return Response({'error': 'Question not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def start_test(request):
+    """Start a new test session for a student"""
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can start tests'}, status=403)
+    
+    try:
+        from .models import QuestionBank, TestSession
+        from .serializers import TestSessionCreateSerializer, TestSessionSerializer
+        
+        serializer = TestSessionCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            test_session = serializer.save(student=request.user)
+            
+            # Get random questions for this test
+            questions = QuestionBank.objects.filter(
+                difficulty_level=test_session.difficulty_level,
+                subject=test_session.subject,
+                is_approved=True
+            ).order_by('?')[:test_session.total_questions]
+            
+            if len(questions) < test_session.total_questions:
+                return Response({
+                    'error': f'Not enough questions available for level {test_session.difficulty_level}. Found {len(questions)}, need {test_session.total_questions}'
+                }, status=400)
+            
+            # Return test session with questions
+            response_serializer = TestSessionSerializer(test_session)
+            return Response({
+                'success': True,
+                'test_session': response_serializer.data,
+                'questions': [
+                    {
+                        'id': q.id,
+                        'question_text': q.question_text,
+                        'question_type': q.question_type,
+                        'option_a': q.option_a,
+                        'option_b': q.option_b,
+                        'option_c': q.option_c,
+                        'option_d': q.option_d,
+                    } for q in questions
+                ]
+            })
+        else:
+            return Response({'error': serializer.errors}, status=400)
+            
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_answer(request):
+    """Submit an answer for a test question"""
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can submit answers'}, status=403)
+    
+    try:
+        from .models import TestSession, QuestionBank, StudentAnswer
+        
+        test_session_id = request.data.get('test_session_id')
+        question_id = request.data.get('question_id')
+        student_answer = request.data.get('answer')
+        time_taken = request.data.get('time_taken_seconds')
+        
+        # Validate test session belongs to student
+        test_session = TestSession.objects.get(id=test_session_id, student=request.user)
+        question = QuestionBank.objects.get(id=question_id)
+        
+        # Check if answer is correct
+        is_correct = student_answer.lower().strip() == question.correct_answer.lower().strip()
+        
+        # Create student answer record
+        answer_record = StudentAnswer.objects.create(
+            test_session=test_session,
+            question=question,
+            student_answer=student_answer,
+            is_correct=is_correct,
+            time_taken_seconds=time_taken
+        )
+        
+        # For practice tests, return the correct answer and explanation
+        response_data = {
+            'success': True,
+            'is_correct': is_correct,
+            'answer_id': answer_record.id
+        }
+        
+        if test_session.test_type == 'practice_test':
+            # Use RAG to get explanation
+            from .document_processing import document_processor
+            
+            explanation = document_processor.get_rag_answer_for_question(
+                question.question_text, 
+                question.document.id
+            )
+            
+            response_data.update({
+                'correct_answer': question.correct_answer,
+                'explanation': explanation,
+                'question_explanation': question.explanation
+            })
+        
+        return Response(response_data)
+        
+    except (TestSession.DoesNotExist, QuestionBank.DoesNotExist):
+        return Response({'error': 'Test session or question not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def complete_test(request):
+    """Complete a test session and calculate score"""
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can complete tests'}, status=403)
+    
+    try:
+        from .models import TestSession, StudentAnswer
+        
+        test_session_id = request.data.get('test_session_id')
+        test_session = TestSession.objects.get(id=test_session_id, student=request.user)
+        
+        # Calculate score
+        total_answers = test_session.answers.count()
+        correct_answers = test_session.answers.filter(is_correct=True).count()
+        
+        if total_answers > 0:
+            score = (correct_answers / total_answers) * 100
+            passed = score >= 70  # 70% passing threshold
+        else:
+            score = 0
+            passed = False
+        
+        # Update test session
+        test_session.is_completed = True
+        test_session.score = score
+        test_session.passed = passed
+        test_session.completed_at = timezone.now()
+        test_session.save()
+        
+        # Update student points if passed and it's a level test
+        if passed and test_session.test_type == 'level_test':
+            request.user.points += int(test_session.difficulty_level) * 10
+            request.user.save()
+        
+        return Response({
+            'success': True,
+            'score': score,
+            'passed': passed,
+            'correct_answers': correct_answers,
+            'total_questions': total_answers,
+            'points_earned': int(test_session.difficulty_level) * 10 if passed and test_session.test_type == 'level_test' else 0
+        })
+        
+    except TestSession.DoesNotExist:
+        return Response({'error': 'Test session not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_test_history(request):
+    """Get test history for the current student"""
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can view test history'}, status=403)
+    
+    try:
+        from .models import TestSession
+        from .serializers import TestSessionSerializer
+        
+        test_sessions = TestSession.objects.filter(student=request.user).order_by('-started_at')
+        serializer = TestSessionSerializer(test_sessions, many=True)
+        
+        return Response({'test_history': serializer.data})
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+# Background task for processing documents (placeholder - would use Celery in production)
+def process_document_and_generate_questions(document_id):
+    """Process document and generate questions - should be a Celery task in production"""
+    try:
+        from .document_processing import document_processor
+        
+        # Update status to processing
+        document = Document.objects.get(id=document_id)
+        document.processing_status = 'processing'
+        document.save()
+        
+        # Extract text from document
+        if document.document_type == 'pdf':
+            extracted_text = document_processor.extract_text_from_pdf(document.file_path)
+        else:
+            extracted_text = "Document processing not implemented for this file type"
+        
+        # Save extracted text
+        document.extracted_text = extracted_text
+        document.save()
+        
+        # Generate questions
+        result = document_processor.generate_questions_from_document(document_id)
+        
+        if result['success']:
+            document.processing_status = 'completed'
+        else:
+            document.processing_status = 'failed'
+            document.processing_error = result.get('error', 'Unknown error')
+        
+        document.save()
+        
+    except Exception as e:
+        # Update document status to failed
+        try:
+            document = Document.objects.get(id=document_id)
+            document.processing_status = 'failed'
+            document.processing_error = str(e)
+            document.save()
+        except:
+            pass

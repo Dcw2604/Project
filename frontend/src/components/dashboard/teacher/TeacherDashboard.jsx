@@ -48,6 +48,7 @@ import {
 import ManageStudents from './ManageStudents';
 import ManageSchedule from './ManageSchedule';
 import ManageDocuments from './ManageDocuments';
+import ManageTests from './ManageTests';
 
 const StyledContainer = styled(Container)(({ theme }) => ({
   minHeight: '100vh',
@@ -357,6 +358,7 @@ const TeacherDashboard = () => {
           <Tab icon={<People />} label="Students" />
           <Tab icon={<CalendarMonth />} label="Schedule" />
           <Tab icon={<Book />} label="Documents" />
+          <Tab icon={<Assignment />} label="Tests" />
         </Tabs>
       </Box>
 
@@ -366,6 +368,7 @@ const TeacherDashboard = () => {
         {activeTab === 1 && <ManageStudents />}
         {activeTab === 2 && <ManageSchedule />}
         {activeTab === 3 && <ManageDocuments />}
+        {activeTab === 4 && <ManageTests />}
       </Box>
     </StyledContainer>
   );

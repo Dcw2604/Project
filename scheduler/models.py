@@ -83,3 +83,93 @@ class Document(models.Model):
     
     class Meta:
         ordering = ['-created_at']
+
+# Question Bank for storing generated questions from documents
+class QuestionBank(models.Model):
+    QUESTION_TYPES = (
+        ('multiple_choice', 'Multiple Choice'),
+        ('true_false', 'True/False'),
+        ('short_answer', 'Short Answer'),
+        ('essay', 'Essay'),
+    )
+    
+    DIFFICULTY_LEVELS = (
+        ('3', 'Level 3 - Basic'),
+        ('4', 'Level 4 - Intermediate'),
+        ('5', 'Level 5 - Advanced'),
+    )
+    
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='questions')
+    question_text = models.TextField()
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='multiple_choice')
+    difficulty_level = models.CharField(max_length=2, choices=DIFFICULTY_LEVELS)
+    subject = models.CharField(max_length=100, default='math')
+    
+    # For multiple choice questions
+    option_a = models.TextField(blank=True, null=True)
+    option_b = models.TextField(blank=True, null=True)
+    option_c = models.TextField(blank=True, null=True)
+    option_d = models.TextField(blank=True, null=True)
+    
+    correct_answer = models.TextField()  # Store the correct answer or option letter
+    explanation = models.TextField(blank=True, null=True)  # RAG-generated explanation
+    
+    # Auto-generated or teacher-modified
+    is_approved = models.BooleanField(default=True)
+    created_by_ai = models.BooleanField(default=True)
+    modified_by_teacher = models.BooleanField(default=False)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Q{self.id} - Level {self.difficulty_level} - {self.question_text[:50]}..."
+    
+    class Meta:
+        ordering = ['difficulty_level', '-created_at']
+
+# Test Sessions for students
+class TestSession(models.Model):
+    TEST_TYPES = (
+        ('level_test', 'Level Test'),
+        ('practice_test', 'Practice Test'),
+    )
+    
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='test_sessions')
+    test_type = models.CharField(max_length=20, choices=TEST_TYPES)
+    difficulty_level = models.CharField(max_length=2, choices=QuestionBank.DIFFICULTY_LEVELS)
+    subject = models.CharField(max_length=100, default='math')
+    
+    # Test configuration
+    total_questions = models.IntegerField(default=10)
+    time_limit_minutes = models.IntegerField(null=True, blank=True)  # Null for practice tests
+    
+    # Test status
+    is_completed = models.BooleanField(default=False)
+    score = models.FloatField(null=True, blank=True)
+    passed = models.BooleanField(default=False)
+    
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.test_type} - Level {self.difficulty_level}"
+    
+    class Meta:
+        ordering = ['-started_at']
+
+# Individual answers for each question in a test session
+class StudentAnswer(models.Model):
+    test_session = models.ForeignKey(TestSession, on_delete=models.CASCADE, related_name='answers')
+    question = models.ForeignKey(QuestionBank, on_delete=models.CASCADE)
+    student_answer = models.TextField()
+    is_correct = models.BooleanField()
+    time_taken_seconds = models.IntegerField(null=True, blank=True)
+    
+    answered_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.test_session.student.username} - Q{self.question.id} - {'✓' if self.is_correct else '✗'}"
+    
+    class Meta:
+        ordering = ['answered_at']

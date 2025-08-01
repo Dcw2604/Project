@@ -17,7 +17,7 @@ import Tab from '@mui/material/Tab';
 import { Chat, Schedule, Assignment, TrendingUp } from '@mui/icons-material';
 import ChatbotQuestions from './components/dashboard/student/ChatbotQuestions';
 import StudentClasses from './components/dashboard/student/StudentClasses';
-import LevelTest from './components/dashboard/student/LevelTest';
+import NewLevelTest from './components/dashboard/student/NewLevelTest';
 import CheckLevel from './components/dashboard/student/CheckLevel';
 import TeacherDashboard from './components/dashboard/teacher/TeacherDashboard';
 import { useAuth } from './hooks/useAuth';
@@ -68,7 +68,7 @@ const App = () => {
       case 1:
         return <StudentClasses />;
       case 2:
-        return <LevelTest />;
+        return <NewLevelTest />;
       case 3:
         return <CheckLevel />;
       default:
@@ -723,7 +723,8 @@ const TeacherPortal = ({ setCurrentPage }) => {
     try {
       const result = await loginWithCredentials(email, password);
       if (result.success) {
-        setCurrentPage('dashboard'); // Navigate to dashboard after successful login
+        // Force a page refresh to ensure teacher dashboard loads properly
+        window.location.reload();
       } else {
         setError(result.error || 'Invalid credentials');
       }
