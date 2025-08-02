@@ -352,8 +352,13 @@ const ChatbotQuestions = () => {
         setMessages(prev => [...prev, processingMessage]);
 
         try {
-            // Determine the endpoint
-            const endpoint = 'chat_interaction';
+            // Determine the endpoint - use enhanced chat for better RAG performance
+            let endpoint = 'chat_interaction';
+            
+            // Use enhanced RAG chat when documents are selected for better context utilization
+            if (selectedDocuments.length > 0 && !selectedImage) {
+                endpoint = 'enhanced_chat';
+            }
 
             // Prepare headers
             const headers = {};
@@ -381,8 +386,14 @@ const ChatbotQuestions = () => {
 
                 requestBody = formData;
                 // Don't set Content-Type for FormData, let browser set it with boundary
+            } else if (endpoint === 'enhanced_chat') {
+                // Use simple JSON for enhanced chat endpoint
+                requestHeaders['Content-Type'] = 'application/json';
+                requestBody = JSON.stringify({
+                    message: newQuestion
+                });
             } else {
-                // Use JSON for text-only requests
+                // Use JSON for regular chat_interaction
                 requestHeaders['Content-Type'] = 'application/json';
                 
                 const requestData = {
@@ -449,24 +460,44 @@ const ChatbotQuestions = () => {
             }
             
             console.log('Received response:', {
+                endpoint,
                 source: data.source,
+                response: data.response, // For enhanced chat
+                answer: data.answer, // For regular chat
                 documentsUsed: data.documents_used,
-                hasAnswer: !!data.answer,
+                contextUsed: data.context_used,
+                sourcesCount: data.sources,
                 hasExtractedText: !!data.extracted_text,
                 ocrConfidence: data.ocr_metadata?.overall_confidence
             });
             
+            // Handle different response formats
+            let botResponse = '';
+            let responseSource = '';
+            
+            if (endpoint === 'enhanced_chat') {
+                // Enhanced chat endpoint format
+                botResponse = data.response || 'No response received';
+                responseSource = `Enhanced RAG (${data.sources || 0} sources, ${data.context_used || 0} contexts)`;
+            } else {
+                // Regular chat_interaction endpoint format
+                botResponse = data.answer || 'No response received';
+                responseSource = data.source || 'AI';
+            }
+            
             // Create the bot response message
             let botMessage = {
-                type: data.source === 'document_rag' || data.source === 'documents' ? 'document' : 'assistant',
-                content: data.answer,
+                type: (data.source === 'document_rag' || data.source === 'documents' || endpoint === 'enhanced_chat') ? 'document' : 'assistant',
+                content: botResponse,
                 timestamp: new Date().toISOString(),
-                source: data.source,
+                source: responseSource,
                 documentsUsed: data.documents_used || [],
                 processingInfo: data.processing_info,
                 chatId: data.chat_id,
                 extractedText: data.extracted_text,
-                ocrMetadata: data.ocr_metadata
+                ocrMetadata: data.ocr_metadata,
+                contextUsed: data.context_used || false,
+                sourcesCount: data.sources || 0
             };
 
             // If we have extracted text from image, show it in a special format
@@ -518,7 +549,7 @@ const ChatbotQuestions = () => {
         setIsUploading(true);
         try {
             const formData = new FormData();
-            formData.append('document', file);
+            formData.append('document', file);  // Revert back to 'document'
             formData.append('title', file.name);
 
             const headers = {};
@@ -753,6 +784,29 @@ const ChatbotQuestions = () => {
                                 Processed: {message.processingInfo.pages} pages, 
                                 {message.processingInfo.text_length} characters
                             </Typography>
+                        </Box>
+                    )}
+
+                    {/* Show RAG context information */}
+                    {message.contextUsed && (
+                        <Box sx={{ mt: 1 }}>
+                            <Chip 
+                                label={`📚 Context: ${message.contextUsed ? 'Used' : 'Not Used'}`}
+                                size="small" 
+                                color={message.contextUsed ? 'primary' : 'default'}
+                                variant="outlined"
+                                icon={<AutoAwesomeIcon />}
+                            />
+                            {message.sourcesCount > 0 && (
+                                <Chip 
+                                    label={`${message.sourcesCount} source${message.sourcesCount !== 1 ? 's' : ''}`}
+                                    size="small" 
+                                    color="info"
+                                    variant="outlined"
+                                    icon={<DescriptionIcon />}
+                                    sx={{ ml: 0.5 }}
+                                />
+                            )}
                         </Box>
                     )}
 
@@ -1075,7 +1129,7 @@ const ChatbotQuestions = () => {
                                     }
                                     secondary={
                                         <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem' }}>
-                                            {doc.document_type} • {doc.pages} pages • {doc.text_preview.slice(0, 50)}...
+                                            {doc.document_type} • {doc.pages ? `${doc.pages} pages` : 'Processing'} • {doc.text_preview ? doc.text_preview.slice(0, 50) + '...' : doc.preview ? doc.preview.slice(0, 50) + '...' : 'No preview available'}
                                         </Typography>
                                     }
                                 />

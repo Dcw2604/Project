@@ -32,10 +32,23 @@ class LessonSerializer(serializers.ModelSerializer):
 
 # Document serializers
 class DocumentSerializer(serializers.ModelSerializer):
+    preview = serializers.SerializerMethodField()
+    text_length = serializers.SerializerMethodField()
+    
     class Meta:
         model = Document
-        fields = ['id', 'title', 'document_type', 'file_path', 'processing_status', 'created_at', 'updated_at']
+        fields = ['id', 'title', 'document_type', 'file_path', 'processing_status', 'created_at', 'updated_at', 'preview', 'text_length']
         read_only_fields = ['id', 'created_at', 'updated_at', 'processing_status']
+    
+    def get_preview(self, obj):
+        """Get a preview of the document text"""
+        if obj.extracted_text:
+            return obj.extracted_text[:200] + "..." if len(obj.extracted_text) > 200 else obj.extracted_text
+        return "No content extracted yet"
+    
+    def get_text_length(self, obj):
+        """Get the length of extracted text"""
+        return len(obj.extracted_text) if obj.extracted_text else 0
 
 class DocumentUploadSerializer(serializers.ModelSerializer):
     file = serializers.FileField(write_only=True)

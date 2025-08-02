@@ -385,18 +385,23 @@ class DocumentProcessor:
                     )
                     
                     for q_data in questions:
+                        # Ensure required fields are present
+                        question_type = q_data.get('type', 'multiple_choice')
+                        if not question_type:
+                            question_type = 'multiple_choice'
+                        
                         # Create QuestionBank entry
                         question = QuestionBank.objects.create(
                             document=document,
-                            question_text=q_data['question'],
-                            question_type=q_data['type'],
+                            question_text=q_data.get('question', 'Generated question'),
+                            question_type=question_type,
                             difficulty_level=difficulty,
                             subject='math',  # Default subject
-                            option_a=q_data.get('option_a'),
-                            option_b=q_data.get('option_b'),
-                            option_c=q_data.get('option_c'),
-                            option_d=q_data.get('option_d'),
-                            correct_answer=q_data['correct_answer'],
+                            option_a=q_data.get('option_a', ''),
+                            option_b=q_data.get('option_b', ''),
+                            option_c=q_data.get('option_c', ''),
+                            option_d=q_data.get('option_d', ''),
+                            correct_answer=q_data.get('correct_answer', 'A'),
                             explanation=q_data.get('explanation', ''),
                             is_approved=True,
                             created_by_ai=True

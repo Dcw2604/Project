@@ -5,7 +5,8 @@ from .views import (
     upload_document, list_documents, get_chat_history,
     clear_conversation_memory, user_login, user_logout, test_image_upload,
     delete_document, list_questions, create_question, update_question,
-    delete_question, start_test, submit_answer, complete_test, get_test_history
+    delete_question, start_test, submit_answer, complete_test, get_test_history,
+    enhanced_chat_with_rag, create_test_questions
 )
 
 # Create a router and register our viewset with it
@@ -23,6 +24,7 @@ urlpatterns = [
     # Chat endpoints (comprehensive RAG implementation)
     path('chat_interaction/', chat_interaction, name="chat_interaction"),
     path('rag_chat/', chat_interaction, name="rag_chat"),  # Alias for frontend compatibility
+    path('enhanced_chat/', enhanced_chat_with_rag, name="enhanced_chat"),  # New enhanced RAG chat
     path('chat_history/', get_chat_history, name="get_chat_history"),
     path('clear_memory/', clear_conversation_memory, name="clear_memory"),
     path('rag_clear_memory/', clear_conversation_memory, name="rag_clear_memory"),  # Alias for frontend compatibility
@@ -36,6 +38,7 @@ urlpatterns = [
     # Question management endpoints
     path('questions/', list_questions, name="list_questions"),
     path('questions/create/', create_question, name="create_question"),
+    path('questions/create_test/', create_test_questions, name="create_test_questions"),  # Test endpoint
     path('questions/<int:question_id>/', update_question, name="update_question"),
     path('questions/<int:question_id>/delete/', delete_question, name="delete_question"),
     

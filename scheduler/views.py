@@ -23,6 +23,9 @@ import json
 import os
 import tempfile
 import time
+import uuid
+import pdfplumber
+import traceback
 from datetime import datetime
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -580,10 +583,21 @@ def chat_interaction(request):
             
             # 🔍 STEP 3: Document-based Q&A with RAG
             if document_ids:
-                documents = Document.objects.filter(
-                    id__in=document_ids,
-                    uploaded_by=user
-                )
+                # Students can access their own documents + teacher documents
+                # Teachers can only access their own documents
+                if user.role == 'teacher':
+                    documents = Document.objects.filter(
+                        id__in=document_ids,
+                        uploaded_by=user
+                    )
+                else:
+                    # Students can access their own documents and teacher documents
+                    from django.db.models import Q
+                    documents = Document.objects.filter(
+                        id__in=document_ids
+                    ).filter(
+                        Q(uploaded_by=user) | Q(uploaded_by__role='teacher')
+                    )
                 
                 if documents.exists():
                     # Create combined vector store
@@ -656,26 +670,198 @@ def chat_interaction(request):
                 else:
                     return Response({"error": "Documents not found or access denied"}, status=404)
             
-            # 💬 STEP 4: General conversation with memory
+            # 💬 STEP 4: General conversation with memory OR auto-document detection
             else:
                 print(f"DEBUG: Processing as general conversation")
                 print(f"DEBUG: Question: '{question[:100]}...'")
                 print(f"DEBUG: LANGCHAIN_AVAILABLE: {LANGCHAIN_AVAILABLE}")
                 
-                if LANGCHAIN_AVAILABLE:
-                    print(f"DEBUG: Using LangChain memory chat")
-                    answer = rag_processor.chat_with_memory(user.id, question)
-                    response_data["features_used"].append("Conversation Memory")
+                # Check if user has any recent documents that might be relevant
+                # Include both user's documents and teacher documents (for students)
+                if user.role == 'student':
+                    from django.db.models import Q
+                    recent_documents = Document.objects.filter(
+                        Q(uploaded_by=user) | Q(uploaded_by__role='teacher'),
+                        processing_status='completed',
+                        extracted_text__isnull=False
+                    ).exclude(extracted_text='').order_by('-created_at')[:5]
                 else:
-                    print(f"DEBUG: Using simple Ollama response")
-                    answer = get_simple_ollama_response(question)
+                    recent_documents = Document.objects.filter(
+                        uploaded_by=user,
+                        processing_status='completed',
+                        extracted_text__isnull=False
+                    ).exclude(extracted_text='').order_by('-created_at')[:3]
                 
-                print(f"DEBUG: Generated answer length: {len(answer)}")
-                print(f"DEBUG: Generated answer preview: {answer[:100]}...")
+                # If user has recent documents, try to find relevant content
+                document_context = ""
+                auto_selected_doc = None
                 
-                response_data["answer"] = answer
-                response_data["source"] = "general_chat"
-                response_data["features_used"].append("General AI Chat")
+                if recent_documents.exists():
+                    print(f"DEBUG: Found {recent_documents.count()} recent documents, checking for relevance")
+                    question_words = set(question.lower().split())
+                    relevant_docs = []
+                    
+                    for doc in recent_documents:
+                        doc_words = set(doc.extracted_text.lower().split())
+                        # Check for word overlap or document name mention
+                        overlap = len(question_words.intersection(doc_words))
+                        
+                        # Enhanced document name detection
+                        doc_title_lower = doc.title.lower()
+                        question_lower = question.lower()
+                        
+                        # Check various ways the document might be mentioned
+                        doc_name_mentioned = (
+                            any(word in doc_title_lower for word in question_words) or
+                            doc_title_lower in question_lower or
+                            any(part in question_lower for part in doc_title_lower.split('.')[0].split()) or  # Check filename without extension
+                            any(f'"{word}"' in question_lower for word in doc_title_lower.split('.')[0].split())  # Check quoted mentions
+                        )
+                        
+                        # Consider document relevant if:
+                        # 1. There's word overlap with content
+                        # 2. Document name/title is mentioned in question
+                        # 3. Question asks about "document", "file", "pdf", etc.
+                        # 4. Question mentions "first", "1", "question" etc. and we have documents
+                        general_doc_words = {'document', 'file', 'pdf', 'questions', 'problems', 'inside', 'from', 'content', 'answer', 'solve'}
+                        question_ref_words = {'first', '1st', '1', 'question', 'problem', 'equation'}
+                        
+                        has_general_doc_reference = bool(question_words.intersection(general_doc_words))
+                        has_question_reference = bool(question_words.intersection(question_ref_words))
+                        
+                        # Higher scoring for direct name mentions
+                        score = overlap
+                        if doc_name_mentioned:
+                            score += 20
+                        if has_general_doc_reference:
+                            score += 5
+                        if has_question_reference and doc.extracted_text:
+                            score += 10
+                        
+                        if score > 0 or doc_name_mentioned or has_general_doc_reference:
+                            relevant_docs.append((doc, score))
+                            print(f"DEBUG: Document '{doc.title}' considered relevant (score: {score}, overlap: {overlap}, name_mentioned: {doc_name_mentioned}, general_ref: {has_general_doc_reference})")
+                    
+                    if relevant_docs:
+                        # Sort by relevance and use the most relevant document
+                        relevant_docs.sort(key=lambda x: x[1], reverse=True)
+                        best_doc = relevant_docs[0][0]
+                        auto_selected_doc = best_doc
+                        
+                        # If score is high enough, redirect to document processing
+                        if relevant_docs[0][1] >= 15:  # High confidence threshold
+                            print(f"DEBUG: HIGH CONFIDENCE - Redirecting to document RAG processing for '{best_doc.title}'")
+                            document_ids = [str(best_doc.id)]
+                            
+                            # Jump back to document processing logic
+                            documents = Document.objects.filter(id=best_doc.id)
+                            
+                            if documents.exists():
+                                # Create combined vector store
+                                combined_texts = []
+                                used_docs = []
+                                
+                                for doc in documents:
+                                    if doc.extracted_text:
+                                        combined_texts.append(f"[Document: {doc.title}]\n{doc.extracted_text}")
+                                        used_docs.append({
+                                            "id": doc.id,
+                                            "title": doc.title,
+                                            "type": doc.document_type
+                                        })
+                                
+                                if combined_texts:
+                                    # Create vector store for combined documents
+                                    combined_text = "\n\n".join(combined_texts)
+                                    vectorstore = rag_processor.create_vector_store(
+                                        combined_text, 
+                                        f"auto_selected_{user.id}_{int(time.time())}"
+                                    )
+                                    
+                                    if vectorstore:
+                                        # Get conversation context
+                                        conversation_context = get_conversation_context(user.id)
+                                        
+                                        # Query with RAG
+                                        answer = rag_processor.query_with_rag(
+                                            vectorstore, 
+                                            question, 
+                                            conversation_context
+                                        )
+                                        
+                                        response_data["answer"] = answer
+                                        response_data["source"] = "document_rag"
+                                        response_data["documents_used"] = used_docs
+                                        response_data["features_used"].extend(["RAG Document Search", "Vector Similarity", "Auto Document Detection"])
+                                        
+                                        # Skip to the end
+                                        print(f"DEBUG: Successfully processed with auto-selected document")
+                                        
+                                    else:
+                                        # Fallback to simple text search
+                                        combined_text_lower = combined_text.lower()
+                                        question_lower = question.lower()
+                                        
+                                        if any(word in combined_text_lower for word in question_lower.split()):
+                                            context_start = max(0, combined_text_lower.find(question_lower.split()[0]) - 300)
+                                            context_end = min(len(combined_text), context_start + 1000)
+                                            context = combined_text[context_start:context_end]
+                                            
+                                            enhanced_question = f"""
+                                            Based on this document: {best_doc.title}
+                                            
+                                            Document content: {context}
+                                            
+                                            Student question: {question}
+                                            
+                                            Please answer based on the document content.
+                                            """
+                                            
+                                            answer = get_simple_ollama_response(enhanced_question)
+                                            response_data["answer"] = answer
+                                            response_data["source"] = "document_simple"
+                                            response_data["documents_used"] = used_docs
+                                            response_data["features_used"].extend(["Simple Document Search", "Auto Document Detection"])
+                                        else:
+                                            response_data["answer"] = "I found the document you mentioned but couldn't find relevant information for your specific question."
+                                            response_data["source"] = "no_match"
+                        else:
+                            # Lower confidence - use as context for general chat
+                            doc_text = best_doc.extracted_text
+                            document_context = f"\n\nDOCUMENT CONTENT from '{best_doc.title}':\n{doc_text}"
+                            print(f"DEBUG: Using document '{best_doc.title}' for context (full text length: {len(doc_text)})")
+                    else:
+                        print(f"DEBUG: No relevant documents found based on question content")
+                
+                # Only do general chat if we didn't redirect to document processing
+                if response_data["source"] == "":
+                    # Enhance the question with document context if available
+                    enhanced_question = question
+                    if document_context:
+                        enhanced_question = f"""The user has uploaded a document and is asking about it. Here is the question: "{question}"
+
+{document_context}
+
+IMPORTANT: Use the document content above to answer the user's question. If they ask about "questions" or "problems" in the document, look for mathematical equations, problems, or questions in the document content and solve/explain them. Do not make up generic answers - use only what's actually in the document."""
+                    
+                    if LANGCHAIN_AVAILABLE:
+                        print(f"DEBUG: Using LangChain memory chat")
+                        answer = rag_processor.chat_with_memory(user.id, enhanced_question)
+                        response_data["features_used"].append("Conversation Memory")
+                        if document_context:
+                            response_data["features_used"].append("Automatic Document Context")
+                    else:
+                        print(f"DEBUG: Using simple Ollama response")
+                        answer = get_simple_ollama_response(enhanced_question)
+                        if document_context:
+                            response_data["features_used"].append("Automatic Document Context")
+                    
+                    print(f"DEBUG: Generated answer length: {len(answer)}")
+                    print(f"DEBUG: Generated answer preview: {answer[:100]}...")
+                    
+                    response_data["answer"] = answer
+                    response_data["source"] = "general_chat"
+                    response_data["features_used"].append("General AI Chat")
         
         # 💾 STEP 5: Save to database
         chat_interaction = ChatInteraction.objects.create(
@@ -991,59 +1177,152 @@ def test_image_upload(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def upload_document(request):
-    """Handle document upload for teachers"""
-    if request.user.role != 'teacher':
-        return Response({'error': 'Only teachers can upload documents'}, status=403)
+    """Handle document upload for teachers (question generation) and students (AI chat)"""
+    # Allow both teachers and students to upload documents
+    # Teachers: Upload for question generation and management
+    # Students: Upload for AI chat and document Q&A
     
     try:
-        from .serializers import DocumentUploadSerializer
+        # Handle file upload - get file from 'document' field (for frontend compatibility)
+        uploaded_file = request.FILES.get('document')
+        title = request.data.get('title', '')
         
-        serializer = DocumentUploadSerializer(data=request.data)
-        if serializer.is_valid():
-            file = serializer.validated_data['file']
-            title = serializer.validated_data['title']
+        if not uploaded_file:
+            return Response({'error': 'No file provided'}, status=400)
+        
+        # Import required modules
+        from .document_processing import DocumentProcessor
+        from django.conf import settings
+        
+        # Determine document type from file extension
+        file_extension = uploaded_file.name.lower().split('.')[-1]
+        document_type = 'pdf' if file_extension == 'pdf' else 'image' if file_extension in ['jpg', 'jpeg', 'png'] else 'text'
+        
+        # Create uploads directory if it doesn't exist
+        upload_dir = os.path.join(settings.BASE_DIR, 'media', 'documents')
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique filename
+        unique_filename = f"{uuid.uuid4()}_{uploaded_file.name}"
+        file_path = os.path.join(upload_dir, unique_filename)
+        
+        # Save file to disk
+        with open(file_path, 'wb+') as destination:
+            for chunk in uploaded_file.chunks():
+                destination.write(chunk)
+        
+        # Create document record
+        document = Document.objects.create(
+            uploaded_by=request.user,
+            title=title,
+            document_type=document_type,
+            file_path=file_path,
+            processing_status='processing'
+        )
+        
+        # Extract text from document
+        try:
+            if document_type == 'pdf':
+                with pdfplumber.open(file_path) as pdf:
+                    text = ''
+                    for page in pdf.pages:
+                        text += page.extract_text() or ''
+            else:
+                # For other file types, read as text
+                with open(file_path, 'r', encoding='utf-8') as text_file:
+                    text = text_file.read()
             
-            # Determine document type
-            file_extension = file.name.lower().split('.')[-1]
-            document_type = 'pdf' if file_extension == 'pdf' else 'image' if file_extension in ['jpg', 'jpeg', 'png'] else 'text'
+            # Update document with extracted text
+            document.extracted_text = text
+            document.processed_content = text  # Store for AI processing
+            document.save()
             
-            # Save file
-            import os
-            from django.conf import settings
+            # Different processing based on user role
+            if request.user.role == 'teacher':
+                # Teachers: Generate questions for test management
+                processor = DocumentProcessor()
+                
+                # Generate questions using existing method
+                question_result = processor.generate_questions_from_document(
+                    document_id=document.id,
+                    difficulty_levels=['3', '4', '5'],
+                    questions_per_level=3
+                )
+                
+                # Update document with question count
+                if question_result.get('success', False):
+                    document.questions_generated_count = question_result.get('questions_generated', 0)
+                    document.processing_status = 'completed'
+                else:
+                    document.processing_status = 'failed'
+                    error_msg = question_result.get('error', 'Unknown error')
+                    print(f"Question generation failed: {error_msg}")
+            else:
+                # Students: Process for RAG and chat without question generation
+                processor = DocumentProcessor()
+                document.processing_status = 'completed'
+                document.questions_generated_count = 0  # Students don't generate questions
             
-            # Create uploads directory if it doesn't exist
-            upload_dir = os.path.join(settings.BASE_DIR, 'media', 'documents')
-            os.makedirs(upload_dir, exist_ok=True)
+            # Prepare RAG chunks for both teachers and students
+            if document.extracted_text:
+                chunks = processor.text_splitter.split_text(document.extracted_text)
+                document.rag_chunks = json.dumps(chunks[:10])  # Store first 10 chunks
             
-            # Generate unique filename
-            import uuid
-            unique_filename = f"{uuid.uuid4()}_{file.name}"
-            file_path = os.path.join(upload_dir, unique_filename)
+            # Save all changes
+            document.save()
             
-            # Save file to disk
-            with open(file_path, 'wb+') as destination:
-                for chunk in file.chunks():
-                    destination.write(chunk)
+            # Return appropriate response based on user role
+            if request.user.role == 'teacher':
+                return Response({
+                    'success': True,
+                    'document_id': document.id,
+                    'message': 'Document uploaded and processed for question generation!',
+                    'questions_generated': document.questions_generated_count or 0,
+                    'processing_result': {
+                        'questions_generated': document.questions_generated_count or 0,
+                        'processing_status': document.processing_status
+                    }
+                }, status=201)
+            else:
+                # Student response - simpler, focused on chat functionality
+                return Response({
+                    'success': True,
+                    'document_id': document.id,
+                    'message': 'Document uploaded successfully for AI chat!',
+                    'title': document.title,
+                    'document_type': document.document_type,
+                    'text_length': len(document.extracted_text),
+                    'preview': document.extracted_text[:200] + "..." if len(document.extracted_text) > 200 else document.extracted_text,
+                    'processing_status': document.processing_status
+                }, status=201)
+                
+        except Exception as processing_error:
+            # If processing fails, still save the document but mark as failed
+            document.processing_status = 'failed'
+            document.save()
             
-            # Create document record
-            document = Document.objects.create(
-                uploaded_by=request.user,
-                title=title,
-                document_type=document_type,
-                file_path=file_path,
-                processing_status='pending'
-            )
-            
-            # Process document in background
-            process_document_and_generate_questions.delay(document.id)
-            
-            return Response({
-                'success': True,
-                'document_id': document.id,
-                'message': 'Document uploaded successfully. Processing will begin shortly.'
-            })
-        else:
-            return Response({'error': serializer.errors}, status=400)
+            # Return appropriate error response based on user role
+            if request.user.role == 'teacher':
+                return Response({
+                    'success': False,
+                    'error': f'Document uploaded but processing failed: {str(processing_error)}',
+                    'document_id': document.id,
+                    'processing_result': {
+                        'questions_generated': 0,
+                        'processing_status': 'failed'
+                    }
+                }, status=400)
+            else:
+                # For students, processing failure might still allow chat usage
+                return Response({
+                    'success': True,
+                    'document_id': document.id,
+                    'message': 'Document uploaded but advanced processing failed. Basic chat functionality available.',
+                    'title': document.title,
+                    'document_type': document.document_type,
+                    'processing_status': 'failed',
+                    'warning': f'Processing error: {str(processing_error)}'
+                }, status=201)
             
     except Exception as e:
         return Response({'error': str(e)}, status=500)
@@ -1051,7 +1330,7 @@ def upload_document(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_documents(request):
-    """List documents - teachers see their own, students see all teacher documents"""
+    """List documents - teachers see their own, students see their own + all teacher documents"""
     try:
         from .serializers import DocumentSerializer
         
@@ -1059,8 +1338,11 @@ def list_documents(request):
             # Teachers see only their own documents
             documents = Document.objects.filter(uploaded_by=request.user)
         else:
-            # Students see all documents uploaded by teachers
-            documents = Document.objects.filter(uploaded_by__role='teacher')
+            # Students see their own documents + all documents uploaded by teachers
+            from django.db.models import Q
+            documents = Document.objects.filter(
+                Q(uploaded_by=request.user) | Q(uploaded_by__role='teacher')
+            )
             
         serializer = DocumentSerializer(documents, many=True)
         return Response({'documents': serializer.data})
@@ -1072,25 +1354,31 @@ def list_documents(request):
 @permission_classes([IsAuthenticated])
 def delete_document(request, document_id):
     """Delete a document and all its associated questions"""
-    if request.user.role != 'teacher':
-        return Response({'error': 'Only teachers can delete documents'}, status=403)
-    
     try:
+        # Users can only delete their own documents
         document = Document.objects.get(id=document_id, uploaded_by=request.user)
         
-        # Delete associated file
-        if os.path.exists(document.file_path):
-            os.unlink(document.file_path)
+        # Delete associated file if it exists
+        try:
+            if document.file_path and os.path.exists(document.file_path):
+                os.unlink(document.file_path)
+        except Exception as file_error:
+            print(f"Warning: Could not delete file {document.file_path}: {file_error}")
         
         # Delete document (questions will be cascade deleted)
+        document_title = document.title
         document.delete()
         
-        return Response({'success': True, 'message': 'Document deleted successfully'})
+        return Response({
+            'success': True, 
+            'message': f'Document "{document_title}" deleted successfully'
+        })
         
     except Document.DoesNotExist:
-        return Response({'error': 'Document not found'}, status=404)
+        return Response({'error': 'Document not found or not owned by you'}, status=404)
     except Exception as e:
-        return Response({'error': str(e)}, status=500)
+        print(f"Error deleting document {document_id}: {str(e)}")
+        return Response({'error': f'Failed to delete document: {str(e)}'}, status=500)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -1115,10 +1403,116 @@ def list_questions(request):
         if document_id:
             questions = questions.filter(document_id=document_id)
         
+        # Add debug logging
+        print(f"Found {questions.count()} questions for user {request.user.username}")
+        
         serializer = QuestionBankSerializer(questions, many=True)
-        return Response({'questions': serializer.data})
+        
+        # Add debug info to response
+        response_data = {
+            'questions': serializer.data,
+            'total_count': questions.count(),
+            'filter_applied': {
+                'difficulty_level': difficulty_level,
+                'document_id': document_id
+            }
+        }
+        
+        print(f"Returning response: {len(serializer.data)} questions")
+        return Response(response_data)
         
     except Exception as e:
+        print(f"Error in list_questions: {e}")
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_test_questions(request):
+    """Create test questions for demonstration - DELETE THIS IN PRODUCTION"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can create questions'}, status=403)
+    
+    try:
+        from .models import QuestionBank, Document
+        
+        # Get the first document for this user, or create a test document
+        try:
+            document = Document.objects.filter(uploaded_by=request.user).first()
+            if not document:
+                # Create a test document
+                document = Document.objects.create(
+                    uploaded_by=request.user,
+                    title="Test Document",
+                    document_type="pdf",
+                    file_path="/test/path.pdf",
+                    extracted_text="This is test content for mathematics questions.",
+                    processing_status="completed"
+                )
+        except Exception as doc_error:
+            return Response({'error': f'Document error: {str(doc_error)}'}, status=500)
+        
+        # Create test questions
+        test_questions = [
+            {
+                'question_text': 'What is 2 + 2?',
+                'difficulty_level': '3',
+                'option_a': '3',
+                'option_b': '4',
+                'option_c': '5',
+                'option_d': '6',
+                'correct_answer': 'B',
+                'explanation': 'Basic addition: 2 + 2 = 4'
+            },
+            {
+                'question_text': 'Solve for x: 2x + 5 = 11',
+                'difficulty_level': '4',
+                'option_a': 'x = 2',
+                'option_b': 'x = 3',
+                'option_c': 'x = 4',
+                'option_d': 'x = 5',
+                'correct_answer': 'B',
+                'explanation': '2x + 5 = 11, so 2x = 6, therefore x = 3'
+            },
+            {
+                'question_text': 'What is the derivative of x²?',
+                'difficulty_level': '5',
+                'option_a': 'x',
+                'option_b': '2x',
+                'option_c': 'x²',
+                'option_d': '2x²',
+                'correct_answer': 'B',
+                'explanation': 'Using the power rule: d/dx(x²) = 2x'
+            }
+        ]
+        
+        created_questions = []
+        for q_data in test_questions:
+            question = QuestionBank.objects.create(
+                document=document,
+                question_text=q_data['question_text'],
+                question_type='multiple_choice',
+                difficulty_level=q_data['difficulty_level'],
+                subject='math',
+                option_a=q_data['option_a'],
+                option_b=q_data['option_b'],
+                option_c=q_data['option_c'],
+                option_d=q_data['option_d'],
+                correct_answer=q_data['correct_answer'],
+                explanation=q_data['explanation'],
+                is_approved=True,
+                created_by_ai=False  # These are manually created test questions
+            )
+            created_questions.append(question.id)
+        
+        return Response({
+            'success': True,
+            'message': f'Created {len(created_questions)} test questions',
+            'question_ids': created_questions,
+            'document_id': document.id
+        })
+        
+    except Exception as e:
+        print(f"Error creating test questions: {e}")
         return Response({'error': str(e)}, status=500)
 
 @api_view(['POST'])
@@ -1422,3 +1816,83 @@ def process_document_and_generate_questions(document_id):
             document.save()
         except:
             pass
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def enhanced_chat_with_rag(request):
+    """
+    Enhanced chat that uses uploaded document content for better responses
+    """
+    try:
+        user_message = request.data.get('message', '')
+        
+        if not user_message:
+            return Response({'error': 'Message is required'}, status=400)
+        
+        # Get all processed documents for RAG context
+        documents = Document.objects.filter(processing_status='completed')
+        
+        # Combine all RAG chunks for context
+        context_chunks = []
+        for doc in documents:
+            if doc.rag_chunks:
+                try:
+                    chunks = json.loads(doc.rag_chunks)
+                    context_chunks.extend(chunks)
+                except json.JSONDecodeError:
+                    continue
+        
+        # Prepare context for Llama
+        context = "\n\n".join(context_chunks[:10])  # Limit context to avoid token limits
+        
+        # Enhanced prompt with document context
+        enhanced_prompt = f"""
+        You are a math tutor with access to educational materials. Use the following context from uploaded documents to provide detailed, accurate answers.
+        
+        Context from educational materials:
+        {context}
+        
+        Student Question: {user_message}
+        
+        Provide a helpful, detailed response that:
+        1. Uses information from the context when relevant
+        2. Explains mathematical concepts clearly
+        3. Provides step-by-step solutions when appropriate
+        4. References the educational material when applicable
+        
+        Response:
+        """
+        
+        # Use Ollama with enhanced context
+        try:
+            import ollama
+            response = ollama.chat(model='llama3.2', messages=[
+                {'role': 'user', 'content': enhanced_prompt}
+            ])
+            
+            ai_response = response['message']['content']
+            
+            # Save chat interaction
+            chat = ChatInteraction.objects.create(
+                student=request.user,
+                question=user_message,
+                answer=ai_response,
+                context_used=len(context_chunks) > 0,
+                sources_count=len(documents)
+            )
+            
+            return Response({
+                'response': ai_response,
+                'context_used': len(context_chunks),
+                'sources': len(documents),
+                'chat_id': chat.id
+            })
+            
+        except Exception as e:
+            return Response({
+                'response': 'I apologize, but I am having trouble accessing my knowledge base right now. Please try again.',
+                'error': str(e)
+            })
+            
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
