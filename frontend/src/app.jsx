@@ -7,7 +7,6 @@ import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
-import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
@@ -38,16 +37,12 @@ const theme = createTheme({
 const App = () => {
   const [currentPage, setCurrentPage] = useState('landing');
   const [activeTab, setActiveTab] = useState(0);
-  const [forceRender, setForceRender] = useState(0);
   const { user, isAuthenticated, logout } = useAuth();
 
   // Force re-render when authentication state changes
   useEffect(() => {
-    console.log('Auth state changed:', { isAuthenticated, user, currentPage });
     if (isAuthenticated && user) {
-      // User just logged in, force re-render
-      setForceRender(prev => prev + 1);
-      console.log('User authenticated, forcing render');
+      // User just logged in
     }
   }, [isAuthenticated, user]);
 

@@ -757,49 +757,6 @@ def upload_document(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def list_documents(request):
-    """📚 List user's documents"""
-    try:
-        print(f"DEBUG: User authenticated: {request.user.is_authenticated}")
-        print(f"DEBUG: User: {request.user}")
-        print(f"DEBUG: Auth header: {request.headers.get('Authorization', 'Not provided')}")
-        
-        if not request.user.is_authenticated:
-            return Response({
-                "error": "Authentication required",
-                "documents": [],
-                "total": 0
-            }, status=401)
-        
-        documents = Document.objects.filter(uploaded_by=request.user).order_by('-created_at')
-        
-        doc_list = []
-        for doc in documents:
-            doc_list.append({
-                "id": doc.id,
-                "title": doc.title,
-                "document_type": doc.document_type,
-                "created_at": doc.created_at.isoformat(),
-                "text_preview": doc.extracted_text[:150] + "..." if len(doc.extracted_text) > 150 else doc.extracted_text,
-                "text_length": len(doc.extracted_text),
-                "status": doc.processing_status
-            })
-        
-        return Response({
-            "documents": doc_list,
-            "total": len(doc_list)
-        })
-        
-    except Exception as e:
-        print(f"ERROR in list_documents: {str(e)}")
-        return Response({
-            "error": f"Failed to load documents: {str(e)}",
-            "documents": [],
-            "total": 0
-        }, status=500)
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
 def get_chat_history(request):
     """📜 Get chat history with filtering"""
     limit = int(request.GET.get('limit', 20))
@@ -1094,14 +1051,17 @@ def upload_document(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_documents(request):
-    """List all documents uploaded by the teacher"""
-    if request.user.role != 'teacher':
-        return Response({'error': 'Only teachers can view documents'}, status=403)
-    
+    """List documents - teachers see their own, students see all teacher documents"""
     try:
         from .serializers import DocumentSerializer
         
-        documents = Document.objects.filter(uploaded_by=request.user)
+        if request.user.role == 'teacher':
+            # Teachers see only their own documents
+            documents = Document.objects.filter(uploaded_by=request.user)
+        else:
+            # Students see all documents uploaded by teachers
+            documents = Document.objects.filter(uploaded_by__role='teacher')
+            
         serializer = DocumentSerializer(documents, many=True)
         return Response({'documents': serializer.data})
         

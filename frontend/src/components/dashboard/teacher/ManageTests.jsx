@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -8,7 +8,6 @@ import {
   Button,
   Chip,
   Stack,
-  Paper,
   styled,
   TextField,
   Dialog,
@@ -27,24 +26,14 @@ import {
   Select,
   MenuItem,
   Alert,
-  Divider,
-  LinearProgress,
   Tabs,
   Tab
 } from '@mui/material';
 import {
-  Assignment,
   Add,
   Edit,
   Delete,
   Upload,
-  CloudUpload,
-  Quiz,
-  Psychology,
-  School,
-  CheckCircle,
-  Cancel,
-  Refresh,
   FileUpload,
   Description,
   QuestionAnswer
@@ -66,13 +55,13 @@ const ManageTests = () => {
   const [loading, setLoading] = useState(false);
   const [uploadDialog, setUploadDialog] = useState(false);
   const [questionDialog, setQuestionDialog] = useState(false);
-  const [selectedDocument, setSelectedDocument] = useState(null);
   const [selectedQuestion, setSelectedQuestion] = useState(null);
   const [filterLevel, setFilterLevel] = useState('');
   const [uploadData, setUploadData] = useState({
     title: '',
     file: null
   });
+  const [uploadError, setUploadError] = useState('');
   const [questionData, setQuestionData] = useState({
     question_text: '',
     question_type: 'multiple_choice',
@@ -85,12 +74,7 @@ const ManageTests = () => {
     explanation: ''
   });
 
-  useEffect(() => {
-    loadDocuments();
-    loadQuestions();
-  }, []);
-
-  const loadDocuments = async () => {
+  const loadDocuments = useCallback(async () => {
     try {
       const token = localStorage.getItem('authToken');
       const response = await fetch('http://127.0.0.1:8000/api/documents/', {
@@ -105,9 +89,9 @@ const ManageTests = () => {
     } catch (error) {
       console.error('Error loading documents:', error);
     }
-  };
+  }, []);
 
-  const loadQuestions = async () => {
+  const loadQuestions = useCallback(async () => {
     try {
       const token = localStorage.getItem('authToken');
       let url = 'http://127.0.0.1:8000/api/questions/';
@@ -127,6 +111,51 @@ const ManageTests = () => {
     } catch (error) {
       console.error('Error loading questions:', error);
     }
+  }, [filterLevel]);
+
+  useEffect(() => {
+    loadDocuments();
+    loadQuestions();
+  }, [loadDocuments, loadQuestions]);
+
+  const validateFile = (file) => {
+    const maxSize = 200 * 1024 * 1024; // 200MB in bytes
+    
+    if (!file) {
+      return { valid: false, error: 'Please select a file' };
+    }
+    
+    if (file.size > maxSize) {
+      return { 
+        valid: false, 
+        error: `File size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds the 200MB limit` 
+      };
+    }
+    
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      return { valid: false, error: 'Only PDF files are allowed' };
+    }
+    
+    return { valid: true, error: '' };
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    const validation = validateFile(file);
+    
+    if (validation.valid) {
+      setUploadData({ ...uploadData, file });
+      setUploadError('');
+    } else {
+      setUploadData({ ...uploadData, file: null });
+      setUploadError(validation.error);
+    }
+  };
+
+  const handleOpenUploadDialog = () => {
+    setUploadDialog(true);
+    setUploadError('');
+    setUploadData({ title: '', file: null });
   };
 
   const handleUploadDocument = async () => {
@@ -135,7 +164,15 @@ const ManageTests = () => {
       return;
     }
 
+    // Validate file again before upload
+    const validation = validateFile(uploadData.file);
+    if (!validation.valid) {
+      setUploadError(validation.error);
+      return;
+    }
+
     setLoading(true);
+    setUploadError('');
     try {
       const token = localStorage.getItem('authToken');
       const formData = new FormData();
@@ -152,7 +189,7 @@ const ManageTests = () => {
       });
 
       if (response.ok) {
-        const data = await response.json();
+        await response.json(); // Just consume the response
         alert('Document uploaded successfully! Questions will be generated automatically.');
         setUploadDialog(false);
         setUploadData({ title: '', file: null });
@@ -288,7 +325,7 @@ const ManageTests = () => {
         <Button
           variant="contained"
           startIcon={<Upload />}
-          onClick={() => setUploadDialog(true)}
+          onClick={handleOpenUploadDialog}
           sx={{
             background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
             borderRadius: '12px',
@@ -513,14 +550,30 @@ const ManageTests = () => {
               type="file"
               accept=".pdf"
               hidden
-              onChange={(e) => setUploadData({ ...uploadData, file: e.target.files[0] })}
+              onChange={handleFileSelect}
             />
           </Button>
-          {uploadData.file && (
-            <Typography variant="body2" sx={{ color: '#10B981' }}>
-              Selected: {uploadData.file.name}
-            </Typography>
+          
+          {uploadError && (
+            <Alert severity="error" sx={{ mt: 1, mb: 1 }}>
+              {uploadError}
+            </Alert>
           )}
+          
+          {uploadData.file && (
+            <Box sx={{ mt: 1, mb: 1 }}>
+              <Typography variant="body2" sx={{ color: '#10B981' }}>
+                ✅ Selected: {uploadData.file.name}
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.875rem' }}>
+                Size: {(uploadData.file.size / (1024 * 1024)).toFixed(1)}MB (Max: 200MB)
+              </Typography>
+            </Box>
+          )}
+          
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.75rem', mt: 1 }}>
+            📄 Supported format: PDF files up to 200MB
+          </Typography>
         </DialogContent>
         <DialogActions sx={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)' }}>
           <Button onClick={() => setUploadDialog(false)} sx={{ color: 'white' }}>

@@ -60,12 +60,22 @@ export const useAuth = () => {
     setIsAuthenticated(false);
   };
 
+  const clearCache = () => {
+    console.log('Clearing auth cache...');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userData');
+    setAuthToken(null);
+    setUser(null);
+    setIsAuthenticated(false);
+  };
+
   return {
     authToken,
     user,
     isAuthenticated,
     login,
     loginWithCredentials,
-    logout
+    logout,
+    clearCache
   };
 };
