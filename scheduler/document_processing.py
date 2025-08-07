@@ -1044,3 +1044,315 @@ EXPLANATION:"""
 
 # Global instance
 document_processor = DocumentProcessor()
+
+
+# Enhanced Math Validation System Extensions
+class EnhancedMathValidator:
+    """Enhanced AI-powered math question validation system"""
+    
+    def __init__(self, processor):
+        self.processor = processor
+        self.validation_feedback_store = []  # RAG learning storage
+    
+    def is_math_question(self, question_text: str) -> tuple:
+        """
+        Enhanced AI-powered math question validation with confidence scoring
+        Returns: (is_math: bool, confidence_score: float)
+        """
+        if not self.processor.llm:
+            # Fallback to keyword-based validation
+            return self._fallback_math_validation(question_text)
+        
+        try:
+            validation_prompt = f"""
+Analyze this question and determine if it is a genuine mathematical question.
+
+QUESTION: "{question_text}"
+
+A mathematical question should involve:
+- Numbers, calculations, or mathematical operations
+- Mathematical concepts, formulas, or theories  
+- Problem-solving requiring mathematical reasoning
+- Geometric, algebraic, statistical, or other math domains
+
+Provide your analysis in this exact format:
+ANALYSIS: [Detailed reasoning about mathematical content]
+IS_MATH: [YES or NO]
+CONFIDENCE: [Score from 0.0 to 1.0]
+
+Your response:"""
+
+            response = self.processor.llm.invoke(validation_prompt)
+            
+            # Parse AI response
+            if "IS_MATH: YES" in response.upper():
+                is_math = True
+            elif "IS_MATH: NO" in response.upper():
+                is_math = False
+            else:
+                # Fallback parsing
+                is_math = self._fallback_math_validation(question_text)[0]
+            
+            # Extract confidence score
+            confidence = 0.7  # Default
+            try:
+                import re
+                conf_match = re.search(r'CONFIDENCE:\s*([0-9.]+)', response.upper())
+                if conf_match:
+                    confidence = float(conf_match.group(1))
+            except:
+                confidence = 0.7
+            
+            # Store feedback for RAG learning
+            self.validation_feedback_store.append({
+                'question': question_text,
+                'is_math': is_math,
+                'confidence': confidence,
+                'ai_analysis': response,
+                'timestamp': str(os.path.getmtime(__file__))
+            })
+            
+            return is_math, confidence
+            
+        except Exception as e:
+            print(f"AI validation failed: {e}")
+            return self._fallback_math_validation(question_text)
+    
+    def _fallback_math_validation(self, question_text: str) -> tuple:
+        """Fallback keyword-based math validation"""
+        math_indicators = [
+            'calculate', 'compute', 'solve', 'equation', 'formula',
+            'addition', 'subtraction', 'multiplication', 'division',
+            'percentage', 'fraction', 'decimal', 'geometry', 'algebra',
+            'statistics', 'probability', 'graph', 'function', 'variable',
+            'sum', 'product', 'difference', 'quotient', 'square', 'root',
+            'angle', 'triangle', 'circle', 'area', 'volume', 'perimeter',
+            'equals', 'greater than', 'less than', 'x =', 'y =', '=',
+            '+', '-', '*', '/', '^', '√', '²', '³', '%'
+        ]
+        
+        question_lower = question_text.lower()
+        math_score = sum(1 for indicator in math_indicators if indicator in question_lower)
+        
+        # Check for numbers
+        import re
+        numbers = re.findall(r'\d+', question_text)
+        if numbers:
+            math_score += len(numbers) * 0.5
+        
+        is_math = math_score >= 2
+        confidence = min(0.9, max(0.3, math_score * 0.2))
+        
+        return is_math, confidence
+    
+    def generate_guaranteed_math_questions(self, document, difficulty_level: int, count: int = 5) -> list:
+        """
+        Generate guaranteed mathematical questions with validation
+        """
+        questions = []
+        attempts = 0
+        max_attempts = count * 3  # Allow multiple attempts
+        
+        while len(questions) < count and attempts < max_attempts:
+            attempts += 1
+            
+            # Generate question using enhanced prompting
+            question_data = self._generate_math_focused_question(document, difficulty_level)
+            
+            if question_data:
+                # Validate it's mathematical
+                is_math, confidence = self.is_math_question(question_data['question'])
+                
+                if is_math and confidence > 0.6:
+                    question_data['confidence_score'] = confidence
+                    question_data['validation_method'] = 'AI_enhanced'
+                    questions.append(question_data)
+                    print(f"✅ Validated math question (confidence: {confidence:.2f})")
+                elif not is_math:
+                    # Generate fallback mathematical question
+                    fallback_question = self._generate_fallback_math_question(document, difficulty_level)
+                    if fallback_question:
+                        fallback_question['confidence_score'] = 0.85
+                        fallback_question['validation_method'] = 'fallback_guaranteed'
+                        questions.append(fallback_question)
+                        print(f"📝 Generated fallback math question")
+        
+        return questions
+    
+    def _generate_math_focused_question(self, document, difficulty_level: int) -> dict:
+        """Generate a math-focused question using AI"""
+        if not self.processor.llm:
+            return None
+        
+        try:
+            # Use document content but focus on mathematical aspects
+            content_snippet = document.extracted_text[:800]
+            
+            difficulty_prompts = {
+                3: "Create a BASIC mathematical question suitable for beginners. Focus on simple arithmetic, basic calculations, or fundamental mathematical concepts.",
+                4: "Create an INTERMEDIATE mathematical question that requires moderate mathematical reasoning. Include multi-step calculations or application of mathematical formulas.",
+                5: "Create an ADVANCED mathematical question that requires complex mathematical thinking. Include challenging calculations, advanced formulas, or sophisticated mathematical reasoning."
+            }
+            
+            math_prompt = f"""
+Based on this educational content, create a MATHEMATICAL question:
+
+CONTENT: {content_snippet}
+
+DIFFICULTY: {difficulty_prompts.get(difficulty_level, 'Create a mathematical question')}
+
+REQUIREMENTS:
+- Question MUST involve mathematical calculations, formulas, or numerical reasoning
+- Include specific numbers, mathematical operations, or quantitative analysis
+- Provide 4 multiple choice options (A, B, C, D)
+- Ensure one option is clearly correct
+- Focus on mathematical concepts like: arithmetic, algebra, geometry, statistics, percentages, equations
+
+Format your response EXACTLY as:
+QUESTION: [Mathematical question with numbers/calculations]
+A) [Mathematical option]
+B) [Mathematical option] 
+C) [Mathematical option]
+D) [Mathematical option]
+ANSWER: [A, B, C, or D]
+EXPLANATION: [Mathematical reasoning and steps]
+
+Create the question now:"""
+
+            response = self.processor.llm.invoke(math_prompt)
+            
+            # Parse response
+            return self._parse_question_response(response)
+            
+        except Exception as e:
+            print(f"Math-focused generation failed: {e}")
+            return None
+    
+    def _generate_fallback_math_question(self, document, difficulty_level: int) -> dict:
+        """Generate guaranteed mathematical question using document numbers"""
+        try:
+            # Extract numbers from document
+            import re
+            numbers = re.findall(r'\d+(?:\.\d+)?', document.extracted_text)
+            
+            if len(numbers) >= 2:
+                # Use document numbers for mathematical operations
+                num1 = float(numbers[0])
+                num2 = float(numbers[1]) if len(numbers) > 1 else 5
+                
+                if difficulty_level == 3:
+                    # Basic arithmetic
+                    correct_answer = num1 + num2
+                    question = f"Calculate: {num1} + {num2} = ?"
+                    options = [correct_answer, correct_answer + 1, correct_answer - 1, correct_answer + 2]
+                    
+                elif difficulty_level == 4:
+                    # Intermediate calculation
+                    correct_answer = num1 * num2
+                    question = f"Calculate: {num1} × {num2} = ?"
+                    options = [correct_answer, correct_answer * 1.1, correct_answer * 0.9, correct_answer + 10]
+                    
+                else:  # Level 5
+                    # Advanced calculation
+                    correct_answer = num1 ** 2 + num2
+                    question = f"Calculate: {num1}² + {num2} = ?"
+                    options = [correct_answer, correct_answer + 5, correct_answer - 3, correct_answer * 1.2]
+                
+                # Shuffle options
+                import random
+                correct_idx = 0
+                random.shuffle(options)
+                correct_answer_letter = ['A', 'B', 'C', 'D'][options.index(correct_answer)]
+                
+                return {
+                    'question': question,
+                    'option_a': str(options[0]),
+                    'option_b': str(options[1]),
+                    'option_c': str(options[2]),
+                    'option_d': str(options[3]),
+                    'correct_answer': correct_answer_letter,
+                    'explanation': f"Mathematical calculation: {question.replace('?', str(correct_answer))}",
+                    'type': 'multiple_choice'
+                }
+            else:
+                # Generic math question
+                return {
+                    'question': f"What is 2 + 2?",
+                    'option_a': "3",
+                    'option_b': "4", 
+                    'option_c': "5",
+                    'option_d': "6",
+                    'correct_answer': "B",
+                    'explanation': "Basic addition: 2 + 2 = 4",
+                    'type': 'multiple_choice'
+                }
+                
+        except Exception as e:
+            print(f"Fallback generation failed: {e}")
+            return None
+    
+    def _parse_question_response(self, response: str) -> dict:
+        """Parse AI response into question format"""
+        try:
+            import re
+            
+            # Extract components using regex
+            question_match = re.search(r'QUESTION:\s*(.+?)(?=\n[A-D]\))', response, re.DOTALL)
+            option_a_match = re.search(r'A\)\s*(.+?)(?=\n[B-D]\))', response)
+            option_b_match = re.search(r'B\)\s*(.+?)(?=\n[C-D]\))', response) 
+            option_c_match = re.search(r'C\)\s*(.+?)(?=\n[D]\))', response)
+            option_d_match = re.search(r'D\)\s*(.+?)(?=\nANSWER)', response)
+            answer_match = re.search(r'ANSWER:\s*([A-D])', response)
+            explanation_match = re.search(r'EXPLANATION:\s*(.+?)(?=\n|$)', response, re.DOTALL)
+            
+            if all([question_match, option_a_match, option_b_match, option_c_match, option_d_match, answer_match]):
+                return {
+                    'question': question_match.group(1).strip(),
+                    'option_a': option_a_match.group(1).strip(),
+                    'option_b': option_b_match.group(1).strip(),
+                    'option_c': option_c_match.group(1).strip(),
+                    'option_d': option_d_match.group(1).strip(),
+                    'correct_answer': answer_match.group(1).strip(),
+                    'explanation': explanation_match.group(1).strip() if explanation_match else "AI-generated mathematical explanation",
+                    'type': 'multiple_choice'
+                }
+            
+        except Exception as e:
+            print(f"Parsing failed: {e}")
+        
+        return None
+
+
+# Enhanced DocumentProcessor methods
+def enhanced_generate_questions_from_document(self, document=None, num_questions=10, difficulty_level=4):
+    """
+    Enhanced question generation with AI-powered math validation
+    """
+    if document is None:
+        return []
+    
+    # Initialize enhanced validator
+    validator = EnhancedMathValidator(self)
+    
+    # Generate guaranteed math questions
+    questions = validator.generate_guaranteed_math_questions(
+        document=document,
+        difficulty_level=difficulty_level,
+        count=num_questions
+    )
+    
+    print(f"🎯 Generated {len(questions)} validated math questions")
+    return questions
+
+def enhanced_is_math_question(self, question_text: str) -> bool:
+    """Enhanced math validation method"""
+    validator = EnhancedMathValidator(self)
+    is_math, confidence = validator.is_math_question(question_text)
+    return is_math
+
+# Add enhanced methods to DocumentProcessor class
+DocumentProcessor._is_math_question = enhanced_is_math_question
+DocumentProcessor._generate_guaranteed_math_questions = lambda self, document, difficulty_level, count=5: EnhancedMathValidator(self).generate_guaranteed_math_questions(document, difficulty_level, count)
+
+# Enhanced global instance with validation
+enhanced_document_processor = DocumentProcessor()
