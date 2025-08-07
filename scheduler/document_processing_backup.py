@@ -558,13 +558,11 @@ MATHEMATICAL CONTENT:
 {text_chunk}
 
 LEVEL 3 (BASIC) REQUIREMENTS:
-- Focus on fundamental concepts and definitions FROM THE PROVIDED MATHEMATICAL CONTENT
-- Basic arithmetic and algebraic manipulations SHOWN IN THE TEXT
-- Direct applications of formulas MENTIONED IN THE DOCUMENT
-- Simple problem recognition BASED ON THE MATERIAL
-- Clear, straightforward questions ABOUT THE SPECIFIC MATHEMATICAL TOPICS COVERED
-
-IMPORTANT: Questions must be directly related to mathematical concepts, formulas, equations, or problems found in the provided content. Do NOT create generic questions.
+- Focus on fundamental concepts and definitions
+- Basic arithmetic and algebraic manipulations  
+- Direct applications of formulas
+- Simple problem recognition
+- Clear, straightforward questions
 
 Generate exactly {num_questions} questions. Format as JSON:
 {{
@@ -991,55 +989,22 @@ IMPORTANT: Generate exactly {num_questions} complete questions with comprehensiv
             if not document.extracted_text:
                 return "No document content available for explanation."
             
-            # Try to load existing vector store
-            vector_store = self.load_vector_store(str(document.id))
+            # Create vector store for this document if not exists
+            vector_store = self._get_or_create_vector_store(document)
             
-            if vector_store and self.llm:
-                try:
-                    # Use RAG to get a detailed explanation
-                    query_result = self.query_document(document, question_text)
-                    
-                    if query_result.get('method') == 'rag_vector' and query_result.get('answer'):
-                        return query_result['answer']
-                except Exception as rag_error:
-                    print(f"RAG query failed: {rag_error}")
+            if not vector_store:
+                return "Unable to process document for explanation."
             
-            # Fallback: Use AI model to generate explanation based on document content
-            if self.llm:
-                try:
-                    # Create a context-aware explanation using the AI model
-                    content_snippet = document.extracted_text[:1000] + "..." if len(document.extracted_text) > 1000 else document.extracted_text
-                    
-                    explanation_prompt = f"""
-Based on the following mathematical document content, provide a clear explanation for this question:
-
-QUESTION: {question_text}
-
-DOCUMENT CONTENT:
-{content_snippet}
-
-Please provide a detailed mathematical explanation that:
-1. Relates to the specific content in the document
-2. Explains the mathematical concepts involved
-3. Shows step-by-step reasoning if applicable
-4. Uses clear, educational language suitable for students
-
-EXPLANATION:"""
-
-                    response = self.llm.invoke(explanation_prompt)
-                    if response and len(response.strip()) > 10:
-                        return response.strip()
-                        
-                except Exception as ai_error:
-                    print(f"AI explanation generation failed: {ai_error}")
+            # Query the document for answer
+            query_result = self.query_document(document_id, question_text)
             
-            # Final fallback: Basic explanation from document content
-            content_snippet = document.extracted_text[:300] + "..." if len(document.extracted_text) > 300 else document.extracted_text
-            return f"Based on the mathematical concepts in the uploaded document:\n\n{content_snippet}\n\nThis question tests your understanding of the mathematical principles covered in this material."
+            if query_result.get('method') == 'rag' and query_result.get('answer'):
+                return query_result['answer']
+            else:
+                return "Unable to generate explanation from document content."
                 
         except Exception as e:
-            print(f"Error generating explanation: {e}")
-            return f"Unable to generate explanation. Please refer to the original document material for context."
+            return f"Error generating explanation: {str(e)}"
 
 
 # Global instance

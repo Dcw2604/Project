@@ -25,27 +25,6 @@ except ImportError:
     CV2_AVAILABLE = False
     print("⚠️ OpenCV not available - using basic image processing")
 
-try:
-    import pytesseract
-    
-    # Test if Tesseract is actually executable and configured
-    try:
-        version = pytesseract.get_tesseract_version()
-        TESSERACT_AVAILABLE = True
-        print(f"Tesseract OCR available - Version: {version}")
-    except Exception as e:
-        TESSERACT_AVAILABLE = False
-        print(f"Tesseract executable not found or not configured: {e}")
-        print("Please install Tesseract OCR:")
-        print("   1. Download from: https://github.com/UB-Mannheim/tesseract/wiki")
-        print("   2. Install to default location")
-        print("   3. Restart Django server")
-        
-except ImportError:
-    TESSERACT_AVAILABLE = False
-    print("pytesseract not installed - OCR functionality will be limited")
-    print("Install with: pip install pytesseract")
-
 # LangChain imports with fallback handling
 try:
     from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -202,7 +181,7 @@ class DocumentProcessor:
     
     def extract_image_text(self, file_path: str, lang: str = 'en') -> Dict:
         """
-        Enhanced text extraction from images using PaddleOCR
+        Text extraction from images using PaddleOCR
         Returns structured result with text, confidence, regions, and errors
         """
         result = {
@@ -214,15 +193,27 @@ class DocumentProcessor:
             'overall_confidence': 0,
             'text_quality': 'unknown'
         }
+        
+        # Try PaddleOCR
         try:
             from paddleocr import PaddleOCR
+            return self._extract_with_paddleocr(file_path, lang, result)
         except ImportError as e:
             result['processing_errors'].append(f"PaddleOCR not installed: {str(e)}")
-            result['text'] = "OCR not available - PaddleOCR not installed"
+            result['text'] = "OCR not available - PaddleOCR not installed. Please install PaddleOCR to enable image text extraction."
             result['text_quality'] = 'failed'
             return result
 
+        except Exception as e:
+            result['processing_errors'].append(f"OCR method selection failed: {str(e)}")
+            result['text_quality'] = 'failed'
+            return result
+    
+    def _extract_with_paddleocr(self, file_path: str, lang: str, result: Dict) -> Dict:
+        """Extract text using PaddleOCR"""
         try:
+            from paddleocr import PaddleOCR
+            
             with Image.open(file_path) as img:
                 result['metadata'] = {
                     'format': img.format,
@@ -274,9 +265,7 @@ class DocumentProcessor:
                             result['processing_errors'].append(f"Malformed OCR line: {line}")
                     else:
                         result['processing_errors'].append(f"Malformed OCR line: {line}")
-            # Only join strings
-            result['text'] = '\n'.join([t for t in all_text if isinstance(t, str)]).strip()
-
+            
             result['text'] = '\n'.join(all_text).strip()
             result['confidence_scores'] = confidences
             result['text_regions'] = text_regions
@@ -294,7 +283,7 @@ class DocumentProcessor:
                 result['text_quality'] = 'poor'
 
         except Exception as e:
-            result['processing_errors'].append(f"Image processing failed: {str(e)}")
+            result['processing_errors'].append(f"PaddleOCR processing failed: {str(e)}")
             result['text_quality'] = 'failed'
 
         return result

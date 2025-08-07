@@ -6,7 +6,7 @@ from .views import (
     clear_conversation_memory, user_login, user_logout, test_image_upload,
     delete_document, list_questions, create_question, update_question,
     delete_question, start_test, submit_answer, complete_test, get_test_history,
-    enhanced_chat_with_rag, create_test_questions
+    enhanced_chat_with_rag, create_test_questions, practice_chat
 )
 
 # Create a router and register our viewset with it
@@ -45,6 +45,7 @@ urlpatterns = [
     # Test endpoints
     path('tests/start/', start_test, name="start_test"),
     path('tests/submit_answer/', submit_answer, name="submit_answer"),
+    path('tests/practice_chat/', practice_chat, name="practice_chat"),
     path('tests/complete/', complete_test, name="complete_test"),
     path('tests/history/', get_test_history, name="get_test_history"),
     path('test_image/', test_image_upload, name="test_image_upload"),

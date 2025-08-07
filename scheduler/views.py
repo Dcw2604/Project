@@ -277,6 +277,103 @@ AI Assistant:"""
 # Global RAG processor instance
 rag_processor = ComprehensiveRAGProcessor()
 
+def process_document_background(document_id, file_path, document_type):
+    """
+    Background processing function for complete document processing
+    This runs after the upload response is sent to avoid timeouts
+    """
+    import threading
+    import time
+    
+    def background_task():
+        try:
+            print(f"BACKGROUND: Starting full processing for document {document_id}")
+            
+            # Get the document
+            document = Document.objects.get(id=document_id)
+            
+            # Process complete document based on type
+            if document_type == 'pdf':
+                print("BACKGROUND: Processing complete PDF")
+                import pdfplumber
+                
+                with pdfplumber.open(file_path) as pdf:
+                    page_count = len(pdf.pages)
+                    print(f"BACKGROUND: Processing all {page_count} pages")
+                    
+                    # Process all pages
+                    text_parts = []
+                    for page_num, page in enumerate(pdf.pages):
+                        try:
+                            page_text = page.extract_text() or ''
+                            text_parts.append(page_text)
+                            
+                            # Progress update every 50 pages
+                            if (page_num + 1) % 50 == 0:
+                                print(f"BACKGROUND: Processed {page_num + 1}/{page_count} pages")
+                                
+                        except Exception as page_error:
+                            print(f"BACKGROUND: Error processing page {page_num + 1}: {page_error}")
+                            text_parts.append('')
+                            continue
+                    
+                    # Update document with complete text
+                    complete_text = '\n'.join(text_parts)
+                    document.extracted_text = complete_text
+                    document.processed_content = complete_text
+                    print(f"BACKGROUND: Complete text extraction: {len(complete_text)} characters")
+            
+            # For teachers: Generate questions after complete processing
+            if document.uploaded_by.role == 'teacher' and document.extracted_text:
+                print("BACKGROUND: Starting question generation")
+                
+                try:
+                    from .document_processing import DocumentProcessor
+                    doc_processor = DocumentProcessor()
+                    
+                    question_result = doc_processor.generate_questions_from_document(
+                        document_id=document.id,
+                        difficulty_levels=['3', '4', '5']
+                    )
+                    
+                    if question_result.get('success', False):
+                        questions_count = question_result.get('questions_generated', 0)
+                        document.questions_generated_count = questions_count
+                        document.processing_status = 'completed'
+                        print(f"BACKGROUND: Generated {questions_count} questions successfully")
+                    else:
+                        print(f"BACKGROUND: Question generation failed: {question_result.get('error', 'Unknown error')}")
+                        document.processing_status = 'completed'  # Still completed for text extraction
+                        
+                except Exception as question_error:
+                    print(f"BACKGROUND: Question generation error: {question_error}")
+                    document.processing_status = 'completed'
+            else:
+                document.processing_status = 'completed'
+            
+            # Save final state
+            document.save()
+            print(f"BACKGROUND: Document {document_id} processing completed")
+            
+        except Exception as e:
+            print(f"BACKGROUND: Error processing document {document_id}: {e}")
+            try:
+                document = Document.objects.get(id=document_id)
+                document.processing_status = 'failed'
+                document.save()
+            except:
+                pass
+    
+    # Start background thread with a small delay to ensure response is sent first
+    def delayed_start():
+        time.sleep(1)  # 1 second delay to ensure response is sent
+        background_task()
+    
+    thread = threading.Thread(target=delayed_start)
+    thread.daemon = True
+    thread.start()
+    print(f"DEBUG: Background processing thread started for document {document_id}")
+
 # Helper functions
 def get_simple_ollama_response(question: str) -> str:
     """Fallback Ollama response without LangChain"""
@@ -460,9 +557,9 @@ def chat_interaction(request):
                 
                 extracted_text = ocr_result.get('text', '').strip()
                 print(f"DEBUG: Extracted text after strip: '{extracted_text}'")
-                print(f"DEBUG: Is Tesseract available check: {extracted_text != 'OCR not available - Tesseract not installed'}")
+                print(f"DEBUG: OCR check: {extracted_text != 'OCR not available - PaddleOCR not installed. Please install PaddleOCR to enable image text extraction.'}")
                 
-                if extracted_text and extracted_text != "OCR not available - Tesseract not installed":
+                if extracted_text and not extracted_text.startswith("OCR not available"):
                     print(f"DEBUG: Processing successful text extraction")
                     response_data["image_processed"] = True
                     response_data["extracted_text"] = extracted_text
@@ -502,9 +599,9 @@ def chat_interaction(request):
                     # Handle case where OCR is not available or failed
                     print(f"DEBUG: OCR failed or no text extracted")
                     
-                    if extracted_text == "OCR not available - Tesseract not installed":
-                        error_message = "OCR is not available. Tesseract OCR software is not installed on this server. Please contact the administrator to enable image text extraction."
-                        print(f"DEBUG: Tesseract not installed error")
+                    if extracted_text.startswith("OCR not available"):
+                        error_message = "OCR is not available. PaddleOCR is not installed on this server. Please contact the administrator to enable image text extraction."
+                        print(f"DEBUG: PaddleOCR not installed error")
                     elif ocr_result.get('processing_errors'):
                         error_message = f"Could not extract text from the image. {'; '.join(ocr_result['processing_errors'])}"
                         print(f"DEBUG: OCR processing errors: {ocr_result['processing_errors']}")
@@ -907,40 +1004,6 @@ IMPORTANT: Use the document content above to answer the user's question. If they
             "support_message": "The error has been logged. Please try again or contact support."
         }, status=500)
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def upload_document(request):
-    """📄 Upload and process documents"""
-    uploaded_file = request.FILES.get('document')
-    title = request.data.get('title', '')
-    
-    if not uploaded_file:
-        return Response({"error": "No file provided"}, status=400)
-    
-    result = process_uploaded_document(uploaded_file, request.user, title or uploaded_file.name)
-    
-    if result['success']:
-        document = Document.objects.create(
-            uploaded_by=request.user,
-            title=result['title'],
-            document_type=result['document_type'],
-            file_path=result['file_path'],
-            extracted_text=result['extraction_result']['text'],
-            metadata=json.dumps(result['extraction_result']['metadata']),
-            processing_status='completed'
-        )
-        
-        return Response({
-            "success": True,
-            "document_id": document.id,
-            "title": document.title,
-            "document_type": document.document_type,
-            "text_length": len(document.extracted_text),
-            "preview": document.extracted_text[:200] + "..." if len(document.extracted_text) > 200 else document.extracted_text
-        })
-    else:
-        return Response({"error": result['error']}, status=400)
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_chat_history(request):
@@ -1178,25 +1241,49 @@ def test_image_upload(request):
 @permission_classes([IsAuthenticated])
 def upload_document(request):
     """Handle document upload for teachers (question generation) and students (AI chat)"""
-    # Allow both teachers and students to upload documents
-    # Teachers: Upload for question generation and management
-    # Students: Upload for AI chat and document Q&A
-    
     try:
-        # Handle file upload - get file from 'document' field (for frontend compatibility)
-        uploaded_file = request.FILES.get('document')
-        title = request.data.get('title', '')
+        # Handle file upload - check multiple possible field names
+        uploaded_file = request.FILES.get('document') or request.FILES.get('file') or request.FILES.get('upload')
+        title = request.data.get('title', '') or request.POST.get('title', '')
+        
+        print(f"DEBUG: Upload attempt by user '{request.user.username}' (role: {request.user.role})")
+        print(f"DEBUG: Available FILES keys: {list(request.FILES.keys())}")
+        print(f"DEBUG: Available POST keys: {list(request.POST.keys())}")
+        print(f"DEBUG: Available data keys: {list(request.data.keys()) if hasattr(request, 'data') else 'No data'}")
+        print(f"DEBUG: File found: {uploaded_file.name if uploaded_file else 'None'}")
+        print(f"DEBUG: Title: '{title}'")
+        print(f"DEBUG: Content-Type: {request.content_type}")
         
         if not uploaded_file:
-            return Response({'error': 'No file provided'}, status=400)
+            # If no file found, try to get the first available file
+            if request.FILES:
+                first_file_key = list(request.FILES.keys())[0]
+                uploaded_file = request.FILES[first_file_key]
+                print(f"DEBUG: Using first available file from key '{first_file_key}': {uploaded_file.name}")
+            else:
+                print("ERROR: No file provided - FILES is empty")
+                return Response({
+                    'error': 'No file provided',
+                    'debug_info': {
+                        'files_keys': list(request.FILES.keys()),
+                        'post_keys': list(request.POST.keys()),
+                        'content_type': request.content_type
+                    }
+                }, status=400)
         
-        # Import required modules
-        from .document_processing import DocumentProcessor
-        from django.conf import settings
+        # Import required modules with error handling
+        try:
+            from .document_processing import document_processor
+            from django.conf import settings
+            print("DEBUG: Successfully imported required modules")
+        except ImportError as import_error:
+            print(f"ERROR: Import failed: {import_error}")
+            return Response({'error': f'System modules not available: {str(import_error)}'}, status=500)
         
         # Determine document type from file extension
         file_extension = uploaded_file.name.lower().split('.')[-1]
         document_type = 'pdf' if file_extension == 'pdf' else 'image' if file_extension in ['jpg', 'jpeg', 'png'] else 'text'
+        print(f"DEBUG: Detected document type: {document_type}")
         
         # Create uploads directory if it doesn't exist
         upload_dir = os.path.join(settings.BASE_DIR, 'media', 'documents')
@@ -1205,150 +1292,218 @@ def upload_document(request):
         # Generate unique filename
         unique_filename = f"{uuid.uuid4()}_{uploaded_file.name}"
         file_path = os.path.join(upload_dir, unique_filename)
+        print(f"DEBUG: Saving file to: {file_path}")
         
         # Save file to disk
-        with open(file_path, 'wb+') as destination:
-            for chunk in uploaded_file.chunks():
-                destination.write(chunk)
+        try:
+            with open(file_path, 'wb+') as destination:
+                for chunk in uploaded_file.chunks():
+                    destination.write(chunk)
+            print("DEBUG: File saved successfully")
+        except Exception as file_error:
+            print(f"ERROR: File save failed: {file_error}")
+            return Response({'error': f'Failed to save file: {str(file_error)}'}, status=500)
         
         # Create document record
-        document = Document.objects.create(
-            uploaded_by=request.user,
-            title=title,
-            document_type=document_type,
-            file_path=file_path,
-            processing_status='processing'
-        )
+        try:
+            document = Document.objects.create(
+                uploaded_by=request.user,
+                title=title or uploaded_file.name,
+                document_type=document_type,
+                file_path=file_path,
+                processing_status='processing'
+            )
+            print(f"DEBUG: Created document record with ID: {document.id}")
+        except Exception as db_error:
+            print(f"ERROR: Database creation failed: {db_error}")
+            # Clean up file if database creation fails
+            if os.path.exists(file_path):
+                os.unlink(file_path)
+            return Response({'error': f'Failed to create document record: {str(db_error)}'}, status=500)
         
         # Extract text from document
+        extracted_text = ""
         try:
             if document_type == 'pdf':
+                print("DEBUG: Processing PDF with pdfplumber")
                 with pdfplumber.open(file_path) as pdf:
-                    text = ''
-                    for page in pdf.pages:
-                        text += page.extract_text() or ''
+                    page_count = len(pdf.pages)
+                    print(f"DEBUG: PDF has {page_count} pages")
+                    
+                    # For immediate response: only process first few pages for preview
+                    preview_pages = min(page_count, 5)  # Just 5 pages for quick preview
+                    print(f"DEBUG: Processing {preview_pages} pages for immediate response, full processing will continue in background")
+                    
+                    text_parts = []
+                    for page_num, page in enumerate(pdf.pages[:preview_pages]):
+                        try:
+                            page_text = page.extract_text() or ''
+                            text_parts.append(page_text)
+                            print(f"DEBUG: Extracted {len(page_text)} characters from preview page {page_num + 1}")
+                        except Exception as page_error:
+                            print(f"DEBUG: Error processing preview page {page_num + 1}: {page_error}")
+                            text_parts.append('')
+                            continue
+                    
+                    extracted_text = '\n'.join(text_parts)
+                    
+                    # Add note about background processing for large PDFs
+                    if page_count > preview_pages:
+                        extracted_text += f"\n\n[PROCESSING NOTE: This PDF has {page_count} pages. Preview shows first {preview_pages} pages. Full document processing is continuing in the background for complete question generation and search capability.]"
+                    
+                    print(f"DEBUG: Preview extracted text length: {len(extracted_text)}")
+                    
+            elif document_type == 'image':
+                print("DEBUG: Processing image with OCR")
+                ocr_result = document_processor.extract_image_text(file_path)
+                extracted_text = ocr_result.get('text', '') if isinstance(ocr_result, dict) else str(ocr_result)
+                print(f"DEBUG: OCR extracted {len(extracted_text)} characters")
+                
             else:
-                # For other file types, read as text
-                with open(file_path, 'r', encoding='utf-8') as text_file:
-                    text = text_file.read()
+                print("DEBUG: Processing text file")
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as text_file:
+                        extracted_text = text_file.read()
+                except UnicodeDecodeError:
+                    # Try with different encoding
+                    with open(file_path, 'r', encoding='latin-1') as text_file:
+                        extracted_text = text_file.read()
+                print(f"DEBUG: Text file extracted {len(extracted_text)} characters")
             
             # Update document with extracted text
-            document.extracted_text = text
-            document.processed_content = text  # Store for AI processing
-            document.save()
+            document.extracted_text = extracted_text
+            document.processed_content = extracted_text
+            document.processing_status = 'processing'  # Update status
+            document.save()  # IMPORTANT: Save before question generation!
+            print("DEBUG: Updated document with extracted text and saved to database")
             
-            # Different processing based on user role
-            if request.user.role == 'teacher':
-                # Teachers: Generate questions for test management
-                processor = DocumentProcessor()
-                
-                # Generate questions using existing method
-                question_result = processor.generate_questions_from_document(
-                    document_id=document.id,
-                    difficulty_levels=['3', '4', '5'],
-                    questions_per_level=3
-                )
-                
-                # Update document with question count
-                if question_result.get('success', False):
-                    document.questions_generated_count = question_result.get('questions_generated', 0)
-                    document.processing_status = 'completed'
-                else:
-                    document.processing_status = 'failed'
-                    error_msg = question_result.get('error', 'Unknown error')
-                    print(f"Question generation failed: {error_msg}")
-            else:
-                # Students: Process for RAG and chat without question generation
-                processor = DocumentProcessor()
-                document.processing_status = 'completed'
-                document.questions_generated_count = 0  # Students don't generate questions
-            
-            # Prepare RAG chunks for both teachers and students
-            if document.extracted_text:
-                chunks = processor.text_splitter.split_text(document.extracted_text)
-                document.rag_chunks = json.dumps(chunks[:10])  # Store first 10 chunks
-            
-            # Save all changes
-            document.save()
-            
-            # Return appropriate response based on user role
-            if request.user.role == 'teacher':
-                return Response({
-                    'success': True,
-                    'document_id': document.id,
-                    'message': 'Document uploaded and processed for question generation!',
-                    'questions_generated': document.questions_generated_count or 0,
-                    'processing_result': {
-                        'questions_generated': document.questions_generated_count or 0,
-                        'processing_status': document.processing_status
-                    }
-                }, status=201)
-            else:
-                # Student response - simpler, focused on chat functionality
-                return Response({
-                    'success': True,
-                    'document_id': document.id,
-                    'message': 'Document uploaded successfully for AI chat!',
-                    'title': document.title,
-                    'document_type': document.document_type,
-                    'text_length': len(document.extracted_text),
-                    'preview': document.extracted_text[:200] + "..." if len(document.extracted_text) > 200 else document.extracted_text,
-                    'processing_status': document.processing_status
-                }, status=201)
-                
-        except Exception as processing_error:
-            # If processing fails, still save the document but mark as failed
+        except Exception as extraction_error:
+            print(f"ERROR: Text extraction failed: {extraction_error}")
             document.processing_status = 'failed'
             document.save()
-            
-            # Return appropriate error response based on user role
+            return Response({
+                'success': False,
+                'error': f'Text extraction failed: {str(extraction_error)}',
+                'document_id': document.id,
+                'processing_status': 'failed'
+            }, status=400)
+        
+        # Process based on user role
+        questions_generated = 0
+        try:
             if request.user.role == 'teacher':
-                return Response({
-                    'success': False,
-                    'error': f'Document uploaded but processing failed: {str(processing_error)}',
-                    'document_id': document.id,
-                    'processing_result': {
-                        'questions_generated': 0,
-                        'processing_status': 'failed'
-                    }
-                }, status=400)
+                print("DEBUG: Processing for teacher - generating questions")
+                print(f"DEBUG: Document {document.id} has extracted_text length: {len(document.extracted_text)}")
+                
+                # Verify that the document actually has text before proceeding
+                if not document.extracted_text or len(document.extracted_text.strip()) < 100:
+                    print(f"ERROR: Document has insufficient text for question generation: {len(document.extracted_text)} chars")
+                    document.processing_status = 'completed'
+                    questions_generated = 0
+                else:
+                    # For immediate response: set status to processing
+                    # Trigger background processing for complete document processing and questions
+                    document.processing_status = 'processing'  # Keep as processing
+                    questions_generated = 0  # Will be updated by background task
+                    
+                    # Start background processing
+                    process_document_background(document.id, file_path, document.document_type)
+                    
+                    print(f"DEBUG: Document uploaded successfully. Background processing started for question generation.")
+                    
             else:
-                # For students, processing failure might still allow chat usage
-                return Response({
-                    'success': True,
-                    'document_id': document.id,
-                    'message': 'Document uploaded but advanced processing failed. Basic chat functionality available.',
-                    'title': document.title,
-                    'document_type': document.document_type,
-                    'processing_status': 'failed',
-                    'warning': f'Processing error: {str(processing_error)}'
-                }, status=201)
+                print("DEBUG: Processing for student - no question generation")
+                # Students: Just process for RAG and chat
+                document.processing_status = 'completed'
+                document.questions_generated_count = 0
+                
+        except Exception as processing_error:
+            print(f"ERROR: Role-based processing failed: {processing_error}")
+            # Continue with basic processing even if advanced features fail
+            document.processing_status = 'completed'
+                
+        except Exception as processing_error:
+            print(f"ERROR: Role-based processing failed: {processing_error}")
+            # Continue with basic processing even if advanced features fail
+            document.processing_status = 'completed'
+            
+        # Save all changes
+        document.save()
+        print(f"DEBUG: Document processing completed. Status: {document.processing_status}")
+        
+        # Return appropriate response based on user role
+        if request.user.role == 'teacher':
+            # Check if background processing was started
+            is_processing = document.processing_status == 'processing' and questions_generated == 0
+            
+            response_data = {
+                'success': True,
+                'document_id': document.id,
+                'message': 'Document uploaded successfully!' if is_processing else 'Document uploaded and processed for question generation!',
+                'background_processing_note': 'Complete document processing and question generation continues in background. Check back in a few minutes.' if is_processing else None,
+                'title': document.title,
+                'document_type': document.document_type,
+                'questions_generated': questions_generated,
+                'text_length': len(extracted_text),
+                'processing_result': {
+                    'questions_generated': questions_generated,
+                    'processing_status': document.processing_status,
+                    'background_processing': is_processing
+                }
+            }
+            print(f"DEBUG: Returning teacher response: {questions_generated} questions generated, background_processing: {is_processing}")
+            return Response(response_data, status=201)
+        else:
+            response_data = {
+                'success': True,
+                'document_id': document.id,
+                'message': 'Document uploaded successfully for AI chat!',
+                'title': document.title,
+                'document_type': document.document_type,
+                'text_length': len(extracted_text),
+                'preview': extracted_text[:200] + "..." if len(extracted_text) > 200 else extracted_text,
+                'processing_status': document.processing_status
+            }
+            print(f"DEBUG: Returning student response")
+            return Response(response_data, status=201)
             
     except Exception as e:
-        return Response({'error': str(e)}, status=500)
+        print(f"ERROR: Upload function failed: {str(e)}")
+        import traceback
+        print(f"ERROR: Full traceback: {traceback.format_exc()}")
+        return Response({
+            'error': f'Document upload failed: {str(e)}',
+            'error_type': type(e).__name__
+        }, status=500)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_documents(request):
-    """List documents - teachers see their own, students see their own + all teacher documents"""
+    """List documents - SEPARATED by role: teachers see only their own, students see only their own"""
     try:
         from .serializers import DocumentSerializer
         
-        if request.user.role == 'teacher':
-            # Teachers see only their own documents
-            documents = Document.objects.filter(uploaded_by=request.user)
+        user = request.user
+        print(f"DEBUG: User '{user.username}' (role: {user.role}) requesting documents")
+        
+        # SEPARATE DOCUMENT VISIBILITY BY ROLE
+        if user.role == 'teacher':
+            # Teachers only see their own uploaded documents
+            documents = Document.objects.filter(uploaded_by=user).order_by('-created_at')
+            print(f"DEBUG: Teacher sees {documents.count()} of their own documents")
         else:
-            # Students see their own documents + all documents uploaded by teachers
-            from django.db.models import Q
-            documents = Document.objects.filter(
-                Q(uploaded_by=request.user) | Q(uploaded_by__role='teacher')
-            )
-            
+            # Students only see their own uploaded documents (NOT teacher documents)
+            documents = Document.objects.filter(uploaded_by=user).order_by('-created_at')
+            print(f"DEBUG: Student sees {documents.count()} of their own documents")
+        
         serializer = DocumentSerializer(documents, many=True)
         return Response({'documents': serializer.data})
         
     except Exception as e:
-        return Response({'error': str(e)}, status=500)
+        print(f"ERROR in list_documents: {str(e)}")
+        return Response({
+            'error': 'Failed to load documents'
+        }, status=500)
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
@@ -1677,7 +1832,7 @@ def submit_answer(request):
             time_taken_seconds=time_taken
         )
         
-        # For practice tests, return the correct answer and explanation
+        # For practice tests, enable interactive chat mode instead of immediate explanation
         response_data = {
             'success': True,
             'is_correct': is_correct,
@@ -1685,18 +1840,35 @@ def submit_answer(request):
         }
         
         if test_session.test_type == 'practice_test':
-            # Use RAG to get explanation
-            from .document_processing import document_processor
-            
-            explanation = document_processor.get_rag_answer_for_question(
-                question.question_text, 
-                question.document.id
-            )
-            
+            # For practice tests, enable chat mode for hints and guidance
             response_data.update({
-                'correct_answer': question.correct_answer,
-                'explanation': explanation,
-                'question_explanation': question.explanation
+                'practice_mode': True,
+                'chat_enabled': True,
+                'question_id': question.id,
+                'test_session_id': test_session.id,
+                'show_chat': True,
+                'tutor_available': True
+            })
+            
+            # Provide different messages based on correctness
+            if is_correct:
+                response_data.update({
+                    'feedback': "🎉 Excellent work! You got it right!",
+                    'message': "Great job! You can ask me about different solution methods, or try the next question. What would you like to explore?",
+                    'correct_answer': question.correct_answer,
+                    'explanation': question.explanation
+                })
+            else:
+                response_data.update({
+                    'feedback': "🤔 Not quite right, but that's okay!",
+                    'message': "That's not the correct answer, but don't worry! Ask me for hints and I'll guide you step by step to understand this problem better.",
+                    'hint_available': True
+                })
+        else:
+            # For level tests, don't show answers immediately
+            response_data.update({
+                'practice_mode': False,
+                'message': 'Answer submitted for grading.'
             })
         
         return Response(response_data)
@@ -1755,6 +1927,123 @@ def complete_test(request):
         return Response({'error': 'Test session not found'}, status=404)
     except Exception as e:
         return Response({'error': str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def practice_chat(request):
+    """
+    Interactive chat for practice questions - provides hints without revealing answers
+    """
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can use practice chat'}, status=403)
+    
+    try:
+        from .models import TestSession, QuestionBank, StudentAnswer
+        
+        test_session_id = request.data.get('test_session_id')
+        question_id = request.data.get('question_id')
+        student_question = request.data.get('question', '').strip()
+        
+        if not student_question:
+            return Response({'error': 'Please ask a question'}, status=400)
+        
+        # Validate test session and question
+        test_session = TestSession.objects.get(
+            id=test_session_id, 
+            student=request.user,
+            test_type='practice_test'  # Only for practice tests
+        )
+        question = QuestionBank.objects.get(id=question_id)
+        
+        # Get the student's answer if they've already attempted this question
+        try:
+            student_answer = StudentAnswer.objects.get(
+                test_session=test_session,
+                question=question
+            )
+            student_already_answered = True
+            is_correct = student_answer.is_correct
+        except StudentAnswer.DoesNotExist:
+            student_already_answered = False
+            is_correct = False
+        
+        print(f"DEBUG: Practice chat - Question: '{student_question}'")
+        print(f"DEBUG: Student answered: {student_already_answered}, Correct: {is_correct}")
+        
+        # Create sophisticated tutor prompt that gives hints without revealing answers
+        tutor_prompt = f"""
+You are a helpful mathematics tutor in a practice session. A student is working on this problem:
+
+PROBLEM: {question.question_text}
+CORRECT ANSWER (DO NOT REVEAL): {question.correct_answer}
+STUDENT ALREADY ANSWERED: {student_already_answered}
+ANSWER WAS CORRECT: {is_correct}
+
+STUDENT'S QUESTION/REQUEST: "{student_question}"
+
+TUTOR INSTRUCTIONS:
+1. NEVER directly give the answer ({question.correct_answer})
+2. If student asks for the answer directly, redirect them to think through the problem
+3. Provide hints, ask guiding questions, or suggest problem-solving approaches
+4. If they ask about a specific step or concept, explain that concept without solving the whole problem
+5. If they're stuck, give them the first step or a similar example
+6. If they already answered correctly, you can discuss the solution method and alternative approaches
+7. If they answered incorrectly and ask for help, guide them toward the right thinking process
+8. Be encouraging and supportive
+9. Use mathematical reasoning appropriate for the difficulty level
+10. If they ask "is this right?" about their approach, give feedback on the method, not the final answer
+
+Example responses:
+- "That's a good start! What do you think the next step would be?"
+- "Let me give you a hint: consider what type of mathematical operation this problem is asking for"
+- "You're on the right track. What happens if you try to simplify that expression?"
+- "Instead of giving you the answer, let me ask: what's the first thing you notice about this problem?"
+
+Respond as a supportive tutor in 2-3 sentences maximum.
+"""
+        
+        try:
+            # Generate tutor response using Ollama
+            tutor_response = get_simple_ollama_response(tutor_prompt)
+            
+            # Clean up the response and ensure it doesn't contain the answer
+            if question.correct_answer.lower() in tutor_response.lower():
+                # If the answer somehow got included, provide a safe fallback
+                tutor_response = f"Let me guide you through this step by step. What's your approach to solving this type of problem? Think about the mathematical concepts involved and try to break it down into smaller steps."
+            
+            # Add some personalization
+            if not student_already_answered:
+                tutor_response += " Remember, you can take your time to think through this!"
+            elif is_correct:
+                tutor_response += " Since you got it right, we can explore different solution methods if you're curious!"
+            
+        except Exception as e:
+            print(f"Tutor response generation failed: {e}")
+            # Fallback responses
+            if "hint" in student_question.lower() or "help" in student_question.lower():
+                tutor_response = "Let me give you a hint: break this problem down into smaller steps. What's the first mathematical operation you think you need to perform?"
+            elif "answer" in student_question.lower():
+                tutor_response = "I can't give you the answer directly - that would spoil the learning! But I can guide you through the thinking process. What approach do you want to try?"
+            else:
+                tutor_response = "That's a great question! Let me help you think through this step by step. What part of the problem are you finding challenging?"
+        
+        return Response({
+            'success': True,
+            'tutor_response': tutor_response,
+            'question_context': {
+                'question_text': question.question_text,
+                'difficulty_level': question.difficulty_level,
+                'already_answered': student_already_answered,
+                'is_correct': is_correct if student_already_answered else None
+            },
+            'chat_continues': True
+        })
+        
+    except (TestSession.DoesNotExist, QuestionBank.DoesNotExist):
+        return Response({'error': 'Test session or question not found'}, status=404)
+    except Exception as e:
+        print(f"Practice chat error: {e}")
+        return Response({'error': f'Chat error: {str(e)}'}, status=500)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

@@ -767,6 +767,157 @@ const ManageTests = () => {
         </Stack>
       </Box>
 
+      {/* Question Generation Status Section */}
+      {documents.length > 0 && (
+        <StyledCard sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={600} mb={3} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AutoAwesome sx={{ color: '#10B981' }} />
+              Question Generation Status
+            </Typography>
+            <Grid container spacing={2}>
+              {documents.map((doc) => {
+                const questionsCount = questions.filter(q => q.document_title === doc.title).length;
+                const statusColor = 
+                  doc.processing_status === 'completed' ? '#10B981' :
+                  doc.processing_status === 'processing' ? '#f59e0b' :
+                  doc.processing_status === 'failed' ? '#ef4444' : '#6b7280';
+                
+                return (
+                  <Grid item xs={12} md={6} lg={4} key={doc.id}>
+                    <Paper sx={{ 
+                      p: 2, 
+                      backgroundColor: 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${statusColor}30`,
+                      borderRadius: 2
+                    }}>
+                      <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
+                        <Typography variant="body1" fontWeight={600} sx={{ color: 'white', mb: 1 }}>
+                          📄 {doc.title.length > 25 ? doc.title.substring(0, 25) + '...' : doc.title}
+                        </Typography>
+                        <Chip 
+                          label={doc.processing_status} 
+                          size="small"
+                          sx={{
+                            backgroundColor: `${statusColor}20`,
+                            color: statusColor,
+                            fontWeight: 600
+                          }}
+                        />
+                      </Box>
+                      
+                      {/* Questions Generated Count */}
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                          Questions Generated:
+                        </Typography>
+                        <Chip 
+                          label={questionsCount}
+                          size="small"
+                          color={questionsCount > 0 ? 'success' : 'default'}
+                          sx={{ fontWeight: 600 }}
+                        />
+                      </Box>
+
+                      {/* Target vs Generated Progress */}
+                      <Box mb={2}>
+                        <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                            Progress (Target: 18)
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: statusColor, fontWeight: 600 }}>
+                            {questionsCount}/18
+                          </Typography>
+                        </Box>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={(questionsCount / 18) * 100}
+                          sx={{
+                            height: 6,
+                            borderRadius: 3,
+                            backgroundColor: 'rgba(255,255,255,0.1)',
+                            '& .MuiLinearProgress-bar': {
+                              backgroundColor: statusColor,
+                              borderRadius: 3,
+                            },
+                          }}
+                        />
+                      </Box>
+
+                      {/* Breakdown by Difficulty Level */}
+                      <Box>
+                        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mb: 1 }}>
+                          Question Breakdown:
+                        </Typography>
+                        <Stack direction="row" spacing={1}>
+                          {['3', '4', '5'].map((level) => {
+                            const levelCount = questions.filter(q => 
+                              q.document_title === doc.title && q.difficulty_level === level
+                            ).length;
+                            const targets = { '3': 8, '4': 6, '5': 4 };
+                            const target = targets[level];
+                            
+                            return (
+                              <Chip
+                                key={level}
+                                label={`L${level}: ${levelCount}/${target}`}
+                                size="small"
+                                color={
+                                  levelCount === target ? 'success' :
+                                  levelCount > 0 ? 'warning' : 'default'
+                                }
+                                sx={{ 
+                                  fontSize: '0.7rem',
+                                  fontWeight: 500
+                                }}
+                              />
+                            );
+                          })}
+                        </Stack>
+                      </Box>
+
+                      {/* Status Message */}
+                      {doc.processing_status === 'processing' && (
+                        <Box display="flex" alignItems="center" mt={2} p={1} sx={{ 
+                          backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                          borderRadius: 1
+                        }}>
+                          <CircularProgress size={16} sx={{ color: '#f59e0b', mr: 1 }} />
+                          <Typography variant="body2" sx={{ color: '#f59e0b' }}>
+                            Generating questions...
+                          </Typography>
+                        </Box>
+                      )}
+                      {doc.processing_status === 'failed' && (
+                        <Box mt={2} p={1} sx={{ 
+                          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                          borderRadius: 1
+                        }}>
+                          <Typography variant="body2" sx={{ color: '#ef4444' }}>
+                            ⚠️ Question generation failed
+                          </Typography>
+                        </Box>
+                      )}
+                      {doc.processing_status === 'completed' && questionsCount === 18 && (
+                        <Box display="flex" alignItems="center" mt={2} p={1} sx={{ 
+                          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                          borderRadius: 1
+                        }}>
+                          <CheckCircle sx={{ color: '#10B981', mr: 1, fontSize: 16 }} />
+                          <Typography variant="body2" sx={{ color: '#10B981' }}>
+                            All questions generated successfully!
+                          </Typography>
+                        </Box>
+                      )}
+                    </Paper>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          </CardContent>
+        </StyledCard>
+      )}
+
       <StyledCard>
         <CardContent>
           {questions.length === 0 ? (

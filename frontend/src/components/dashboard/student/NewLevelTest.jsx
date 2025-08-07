@@ -25,7 +25,9 @@ import {
   Select,
   MenuItem,
   Divider,
-  IconButton
+  IconButton,
+  TextField,
+  CircularProgress
 } from '@mui/material';
 import {
   PlayArrow,
@@ -38,6 +40,8 @@ import {
   Psychology,
   Stop,
   School,
+  Send,
+  ChatBubbleOutline,
   Assignment,
   QuestionMark,
   LightbulbOutlined
@@ -80,7 +84,7 @@ const NewLevelTest = () => {
     test_type: 'level_test',
     difficulty_level: '3',
     subject: 'math',
-    total_questions: 10,
+    total_questions: 8, // Updated to match our generation: Level 3=8, Level 4=6, Level 5=4
     time_limit_minutes: null
   });
   
@@ -94,6 +98,12 @@ const NewLevelTest = () => {
   const [results, setResults] = useState(null);
   const [showExplanation, setShowExplanation] = useState(false);
   const [currentExplanation, setCurrentExplanation] = useState(null);
+  
+  // New state for interactive practice chat
+  const [showPracticeChat, setShowPracticeChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
   useEffect(() => {
     if (timeLeft !== null && timeLeft > 0 && currentView === 'test') {
@@ -164,14 +174,57 @@ const NewLevelTest = () => {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('Submit answer response:', data);
+        console.log('Test config type:', testConfig.test_type);
         
-        // For practice tests, show explanation immediately
+        // For practice tests, enable interactive chat mode
         if (testConfig.test_type === 'practice_test') {
+          console.log('Processing practice test response...');
+          if (data.practice_mode && data.chat_enabled) {
+            console.log('Enabling practice chat mode');
+            // Initialize chat with system message based on correctness
+            const systemMessage = {
+              type: 'system',
+              message: (data.feedback || '') + " " + (data.message || ''),
+              timestamp: new Date(),
+              isCorrect: data.is_correct
+            };
+            
+            // Add a helpful follow-up message for better user experience
+            const welcomeMessage = {
+              type: 'tutor',
+              message: data.is_correct 
+                ? "🎉 Excellent work! I'm here to help you explore different solution methods or clarify any concepts. What would you like to know?"
+                : "🤔 Let's work through this together! I can give you hints, explain concepts, or guide you step-by-step. What would you like help with?",
+              timestamp: new Date()
+            };
+            
+            setChatMessages([systemMessage, welcomeMessage]);
+            setShowPracticeChat(true);
+            setCurrentExplanation({
+              is_correct: data.is_correct,
+              chat_enabled: true,
+              question_id: data.question_id,
+              test_session_id: data.test_session_id,
+              correct_answer: data.correct_answer,
+              explanation: data.explanation
+            });
+          } else {
+            console.log('Falling back to explanation mode');
+            // Fallback to old explanation mode
+            setCurrentExplanation({
+              is_correct: data.is_correct,
+              correct_answer: data.correct_answer,
+              explanation: data.explanation,
+              question_explanation: data.question_explanation
+            });
+            setShowExplanation(true);
+          }
+        } else {
+          // For level tests, just show basic feedback
           setCurrentExplanation({
             is_correct: data.is_correct,
-            correct_answer: data.correct_answer,
-            explanation: data.explanation,
-            question_explanation: data.question_explanation
+            message: data.message || 'Answer submitted.'
           });
           setShowExplanation(true);
         }
@@ -179,12 +232,97 @@ const NewLevelTest = () => {
         return data;
       } else {
         const errorData = await response.json();
+        console.error('Submit answer error:', errorData);
         alert(`Error submitting answer: ${errorData.error}`);
         return null;
       }
     } catch (error) {
       alert(`Error submitting answer: ${error.message}`);
       return null;
+    }
+  };
+
+  const sendPracticeChat = async () => {
+    if (!chatInput.trim()) return;
+    
+    const userMessage = {
+      type: 'user',
+      message: chatInput.trim(),
+      timestamp: new Date()
+    };
+    
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatLoading(true);
+    
+    const currentQuestion = questions[currentQuestionIndex];
+    
+    console.log('Sending practice chat message:', {
+      test_session_id: currentTest?.id,
+      question_id: currentQuestion?.id,
+      question: chatInput.trim(),
+      testConfig: testConfig
+    });
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch('http://127.0.0.1:8000/api/tests/practice_chat/', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          test_session_id: currentTest.id,
+          question_id: currentQuestion.id,
+          question: chatInput.trim()
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Practice chat response:', data);
+        
+        const tutorMessage = {
+          type: 'tutor',
+          message: data.tutor_response,
+          timestamp: new Date(),
+          questionContext: data.question_context
+        };
+        
+        setChatMessages(prev => [...prev, tutorMessage]);
+      } else {
+        const errorData = await response.json();
+        console.error('Practice chat error:', errorData);
+        const errorMessage = {
+          type: 'error',
+          message: `Error: ${errorData.error || 'Failed to get tutor response'}`,
+          timestamp: new Date()
+        };
+        setChatMessages(prev => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      console.error('Practice chat network error:', error);
+      const errorMessage = {
+        type: 'error',
+        message: `Chat error: ${error.message}`,
+        timestamp: new Date()
+      };
+      setChatMessages(prev => [...prev, errorMessage]);
+    }
+    
+    setChatInput('');
+    setChatLoading(false);
+  };
+
+  const handlePracticeContinue = () => {
+    setShowPracticeChat(false);
+    setChatMessages([]);
+    setCurrentExplanation(null);
+    
+    if (currentQuestionIndex < questions.length - 1) {
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+    } else {
+      handleCompleteTest();
     }
   };
 
@@ -210,6 +348,8 @@ const NewLevelTest = () => {
 
   const handleNextQuestion = () => {
     setShowExplanation(false);
+    setShowPracticeChat(false);
+    setChatMessages([]);
     setCurrentExplanation(null);
     
     if (currentQuestionIndex < questions.length - 1) {
@@ -286,15 +426,24 @@ const NewLevelTest = () => {
                   <InputLabel sx={{ color: 'white' }}>Difficulty Level</InputLabel>
                   <Select
                     value={testConfig.difficulty_level}
-                    onChange={(e) => setTestConfig({ ...testConfig, difficulty_level: e.target.value, time_limit_minutes: e.target.value === '3' ? 15 : e.target.value === '4' ? 20 : 25 })}
+                    onChange={(e) => {
+                      const level = e.target.value;
+                      const questionCounts = { '3': 8, '4': 6, '5': 4 };
+                      setTestConfig({ 
+                        ...testConfig, 
+                        difficulty_level: level, 
+                        total_questions: questionCounts[level], 
+                        time_limit_minutes: level === '3' ? 15 : level === '4' ? 20 : 25 
+                      });
+                    }}
                     sx={{ 
                       color: 'white',
                       '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' }
                     }}
                   >
-                    <MenuItem value="3">Level 3 - Basic (15 min)</MenuItem>
-                    <MenuItem value="4">Level 4 - Intermediate (20 min)</MenuItem>
-                    <MenuItem value="5">Level 5 - Advanced (25 min)</MenuItem>
+                    <MenuItem value="3">Level 3 - Basic (8 questions, 15 min)</MenuItem>
+                    <MenuItem value="4">Level 4 - Intermediate (6 questions, 20 min)</MenuItem>
+                    <MenuItem value="5">Level 5 - Advanced (4 questions, 25 min)</MenuItem>
                   </Select>
                 </FormControl>
                 
@@ -338,7 +487,7 @@ const NewLevelTest = () => {
                 🧠 Practice Mode
               </Typography>
               <Typography variant="body1" sx={{ opacity: 0.9, mb: 3 }}>
-                Practice without time pressure. Get instant explanations for each question!
+                Interactive practice with AI tutor chat! Ask questions, get hints, and learn step-by-step without revealing answers.
               </Typography>
               
               <Box mb={3}>
@@ -346,22 +495,31 @@ const NewLevelTest = () => {
                   <InputLabel sx={{ color: 'white' }}>Practice Level</InputLabel>
                   <Select
                     value={testConfig.difficulty_level}
-                    onChange={(e) => setTestConfig({ ...testConfig, difficulty_level: e.target.value, time_limit_minutes: null })}
+                    onChange={(e) => {
+                      const level = e.target.value;
+                      const questionCounts = { '3': 8, '4': 6, '5': 4 };
+                      setTestConfig({ 
+                        ...testConfig, 
+                        difficulty_level: level, 
+                        total_questions: questionCounts[level], 
+                        time_limit_minutes: null 
+                      });
+                    }}
                     sx={{ 
                       color: 'white',
                       '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' }
                     }}
                   >
-                    <MenuItem value="3">Level 3 - Basic</MenuItem>
-                    <MenuItem value="4">Level 4 - Intermediate</MenuItem>
-                    <MenuItem value="5">Level 5 - Advanced</MenuItem>
+                    <MenuItem value="3">Level 3 - Basic (8 questions)</MenuItem>
+                    <MenuItem value="4">Level 4 - Intermediate (6 questions)</MenuItem>
+                    <MenuItem value="5">Level 5 - Advanced (4 questions)</MenuItem>
                   </Select>
                 </FormControl>
                 
                 <Stack spacing={1}>
                   <Chip label={`${testConfig.total_questions} Questions`} color="primary" />
                   <Chip label="No Time Limit" color="success" />
-                  <Chip label="Instant Feedback" color="info" />
+                  <Chip label="AI Tutor Chat" color="info" />
                 </Stack>
               </Box>
 
@@ -508,6 +666,174 @@ const NewLevelTest = () => {
               sx={{ background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)' }}
             >
               {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish Test'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Interactive Practice Chat Dialog */}
+        <Dialog open={showPracticeChat} maxWidth="md" fullWidth>
+          <DialogTitle sx={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', color: 'white', display: 'flex', alignItems: 'center', gap: 2 }}>
+            <ChatBubbleOutline />
+            Practice Helper Chat
+            {currentExplanation?.is_correct && (
+              <Chip 
+                label="✅ Correct Answer!" 
+                color="success" 
+                size="small"
+                sx={{ ml: 'auto' }}
+              />
+            )}
+          </DialogTitle>
+          <DialogContent sx={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', color: 'white', minHeight: '400px', display: 'flex', flexDirection: 'column' }}>
+            
+            {/* Current Question Display */}
+            <Paper sx={{ p: 2, mb: 2, backgroundColor: 'rgba(255,255,255,0.1)' }}>
+              <Typography variant="body2" sx={{ opacity: 0.8, mb: 1 }}>
+                Current Question:
+              </Typography>
+              <Typography variant="body1" fontWeight="medium">
+                {questions[currentQuestionIndex]?.question_text}
+              </Typography>
+              {answers[questions[currentQuestionIndex]?.id] && (
+                <Typography variant="body2" sx={{ mt: 1, opacity: 0.9 }}>
+                  Your answer: <strong>{answers[questions[currentQuestionIndex]?.id]}</strong>
+                </Typography>
+              )}
+            </Paper>
+
+            {/* Chat Messages */}
+            <Box sx={{ flexGrow: 1, overflowY: 'auto', mb: 2, maxHeight: '300px' }}>
+              {chatMessages.map((msg, index) => (
+                <Box key={index} sx={{ mb: 2 }}>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    justifyContent: msg.type === 'user' ? 'flex-end' : 'flex-start',
+                    mb: 1
+                  }}>
+                    <Paper sx={{ 
+                      p: 2, 
+                      maxWidth: '80%',
+                      backgroundColor: msg.type === 'user' 
+                        ? 'rgba(59, 130, 246, 0.3)' 
+                        : msg.type === 'tutor'
+                        ? 'rgba(16, 185, 129, 0.3)'
+                        : msg.type === 'system'
+                        ? 'rgba(107, 114, 128, 0.3)'
+                        : 'rgba(239, 68, 68, 0.3)',
+                      borderRadius: msg.type === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px'
+                    }}>
+                      <Typography variant="body2" sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 1, 
+                        mb: 0.5, 
+                        opacity: 0.8,
+                        fontSize: '0.75rem'
+                      }}>
+                        {msg.type === 'user' && '👤 You'}
+                        {msg.type === 'tutor' && '🤖 Tutor'}
+                        {msg.type === 'system' && '💡 System'}
+                        {msg.type === 'error' && '⚠️ Error'}
+                        <span style={{ marginLeft: 'auto' }}>
+                          {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </Typography>
+                      <Typography variant="body1">
+                        {msg.message}
+                      </Typography>
+                    </Paper>
+                  </Box>
+                </Box>
+              ))}
+              {chatLoading && (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 2 }}>
+                  <Paper sx={{ 
+                    p: 2, 
+                    backgroundColor: 'rgba(16, 185, 129, 0.3)',
+                    borderRadius: '16px 16px 16px 4px'
+                  }}>
+                    <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      🤖 Tutor is thinking...
+                      <CircularProgress size={16} sx={{ color: 'white' }} />
+                    </Typography>
+                  </Paper>
+                </Box>
+              )}
+            </Box>
+
+            {/* Chat Input */}
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+              <TextField
+                fullWidth
+                multiline
+                maxRows={3}
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask me anything about this problem... (e.g., 'Give me a hint', 'What's the first step?', 'Explain this concept')"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendPracticeChat();
+                  }
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: 'rgba(255,255,255,0.1)',
+                    color: 'white',
+                    '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+                    '&.Mui-focused fieldset': { borderColor: '#10B981' }
+                  },
+                  '& .MuiInputBase-input::placeholder': { color: 'rgba(255,255,255,0.6)' }
+                }}
+              />
+              <Button
+                onClick={sendPracticeChat}
+                disabled={!chatInput.trim() || chatLoading}
+                variant="contained"
+                sx={{ 
+                  background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+                  minWidth: '60px',
+                  height: '56px'
+                }}
+              >
+                <Send />
+              </Button>
+            </Box>
+
+            {/* Helpful Prompts */}
+            <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              <Typography variant="caption" sx={{ opacity: 0.7, width: '100%', mb: 1 }}>
+                Quick suggestions:
+              </Typography>
+              {[
+                'Give me a hint',
+                'What\'s the first step?', 
+                'Explain this concept',
+                'Is my approach correct?',
+                'Show me a similar example'
+              ].map((suggestion) => (
+                <Chip
+                  key={suggestion}
+                  label={suggestion}
+                  size="small"
+                  onClick={() => setChatInput(suggestion)}
+                  sx={{ 
+                    backgroundColor: 'rgba(255,255,255,0.1)', 
+                    color: 'white',
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
+                  }}
+                />
+              ))}
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', gap: 1 }}>
+            <Button 
+              onClick={handlePracticeContinue}
+              variant="contained"
+              sx={{ background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)' }}
+            >
+              {currentQuestionIndex < questions.length - 1 ? 'Continue to Next Question' : 'Finish Practice'}
             </Button>
           </DialogActions>
         </Dialog>
