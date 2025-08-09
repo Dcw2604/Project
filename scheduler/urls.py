@@ -16,12 +16,17 @@ from .views import (
     end_learning_session, handle_exam_chat_interaction,
     # NEW: Structured Learning System
     start_learning_session, submit_learning_answer, get_learning_progress, 
-    teacher_assessment_dashboard, available_learning_topics
+    teacher_assessment_dashboard, available_learning_topics,
+    # TASK 2.1: Exam Session Views
+    list_topics, create_exam_session, get_exam_session, list_exam_sessions,
+    # TASK 2.2: Exam Config Views
+    ExamConfigViewSet
 )
 
 # Create a router and register our viewset with it
 router = DefaultRouter()
 router.register(r'lessons', LessonViewSet)
+router.register(r'exam-configs', ExamConfigViewSet, basename='exam-config')
 
 # Main API endpoints
 urlpatterns = [
@@ -91,6 +96,15 @@ urlpatterns = [
     
     # 👨‍🏫 Teacher Assessment Dashboard
     path('teacher/assessments/', teacher_assessment_dashboard, name='teacher_assessment_dashboard'),
+    
+    # 📝 TASK 2.1: Exam Session Management
+    path('topics/', list_topics, name='list_topics'),
+    path('exam-sessions/', create_exam_session, name='create_exam_session_alias'),  # Frontend expects this path
+    path('exam-sessions/list/', list_exam_sessions, name='list_exam_sessions_alias'),  # Additional alias
+    path('exam-sessions/<int:session_id>/', get_exam_session, name='get_exam_session_alias'),  # Additional alias
+    path('exams/sessions/', create_exam_session, name='create_exam_session'),  # Original path
+    path('exams/sessions/list/', list_exam_sessions, name='list_exam_sessions'),
+    path('exams/sessions/<int:session_id>/', get_exam_session, name='get_exam_session'),
     
     # Router endpoints (lessons)
     path('', include(router.urls)),

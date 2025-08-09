@@ -41,7 +41,8 @@ import {
   CalendarMonth,
   Group,
   Book,
-  BarChart
+  BarChart,
+  Quiz
 } from '@mui/icons-material';
 
 // Import teacher components
@@ -49,6 +50,7 @@ import ManageStudents from './ManageStudents';
 import ManageSchedule from './ManageSchedule';
 import ManageDocuments from './ManageDocuments';
 import ManageTests from './ManageTests';
+import CreateExamSession from './CreateExamSession';
 
 const StyledContainer = styled(Container)(({ theme }) => ({
   minHeight: '100vh',
@@ -125,6 +127,15 @@ const TeacherDashboard = () => {
 
   const handleMenuClose = () => {
     setAnchorEl(null);
+  };
+
+  const handleCreateExamSession = () => {
+    setActiveTab(5); // Switch to Exam Sessions tab
+  };
+
+  const handleExamSessionSuccess = () => {
+    // Refresh data or show success message
+    // You can add any success handling here
   };
 
   const renderDashboardOverview = () => (
@@ -249,6 +260,9 @@ const TeacherDashboard = () => {
               </Typography>
               
               <Stack spacing={2}>
+                <ActionButton startIcon={<Quiz />} fullWidth onClick={handleCreateExamSession}>
+                  Create Exam Session
+                </ActionButton>
                 <ActionButton startIcon={<Add />} fullWidth>
                   Schedule New Lesson
                 </ActionButton>
@@ -359,6 +373,7 @@ const TeacherDashboard = () => {
           <Tab icon={<CalendarMonth />} label="Schedule" />
           <Tab icon={<Book />} label="Documents" />
           <Tab icon={<Assignment />} label="Tests" />
+          <Tab icon={<Quiz />} label="Exam Sessions" />
         </Tabs>
       </Box>
 
@@ -369,6 +384,13 @@ const TeacherDashboard = () => {
         {activeTab === 2 && <ManageSchedule />}
         {activeTab === 3 && <ManageDocuments />}
         {activeTab === 4 && <ManageTests />}
+        {activeTab === 5 && (
+          <Box sx={{ p: 3 }}>
+            <CreateExamSession 
+              onSuccess={handleExamSessionSuccess} 
+            />
+          </Box>
+        )}
       </Box>
     </StyledContainer>
   );

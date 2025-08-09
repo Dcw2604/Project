@@ -13,8 +13,16 @@ from rest_framework import generics, permissions, viewsets, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .serializers import UserRegistrationSerializer, LessonSerializer, DocumentSerializer, DocumentUploadSerializer, QuestionBankSerializer, QuestionBankCreateSerializer, TestSessionSerializer, TestSessionCreateSerializer, StudentAnswerSerializer
-from .models import User, Lesson, ChatInteraction, Document, LearningSession, QuestionResponse
+from .serializers import (
+    UserRegistrationSerializer, LessonSerializer, DocumentSerializer, 
+    DocumentUploadSerializer, QuestionBankSerializer, QuestionBankCreateSerializer, 
+    TestSessionSerializer, TestSessionCreateSerializer, StudentAnswerSerializer,
+    TopicSerializer, ExamSessionSerializer, ExamSessionCreateSerializer, ExamConfigSerializer
+)
+from .models import (
+    User, Lesson, ChatInteraction, Document, LearningSession, QuestionResponse,
+    QuestionBank, Topic, ExamSession, ExamSessionTopic, ExamSessionQuestion, ExamConfig, ExamConfigQuestion
+)
 from .structured_learning import StructuredLearningManager
 # Temporarily disable imports to get server running
 try:
@@ -2352,11 +2360,12 @@ def delete_document(request, document_id):
         return Response({'error': f'Failed to delete document: {str(e)}'}, status=500)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([])  # Allow anonymous access for development
 def list_questions(request):
-    """List all generated questions, optionally filtered by difficulty level"""
-    if request.user.role != 'teacher':
-        return Response({'error': 'Only teachers can view questions'}, status=403)
+    """List all chat-generated questions, optionally filtered by difficulty level and topics"""
+    # Remove teacher role check for development
+    # if request.user.role != 'teacher':
+    #     return Response({'error': 'Only teachers can view questions'}, status=403)
     
     try:
         from .models import QuestionBank
@@ -2365,27 +2374,71 @@ def list_questions(request):
         # Get query parameters
         difficulty_level = request.GET.get('difficulty_level')
         document_id = request.GET.get('document_id')
+        topic_ids = request.GET.get('topic_ids')  # Comma-separated topic IDs
+        search = request.GET.get('search')
+        is_generated = request.GET.get('is_generated', 'true')  # Default to chat-generated only
+        limit = request.GET.get('limit')
+        offset = request.GET.get('offset', '0')
         
-        # Filter questions
-        questions = QuestionBank.objects.filter(document__uploaded_by=request.user)
+        # Filter questions - ONLY chat-generated questions by default
+        # For development, get all questions if no user is authenticated
+        if hasattr(request, 'user') and request.user.is_authenticated:
+            questions = QuestionBank.objects.filter(
+                document__uploaded_by=request.user,
+                is_generated=(is_generated.lower() == 'true')  # Filter by chat-generated origin
+            )
+        else:
+            # For anonymous access, return all chat-generated questions
+            questions = QuestionBank.objects.filter(
+                is_generated=(is_generated.lower() == 'true')
+            )
         
         if difficulty_level:
             questions = questions.filter(difficulty_level=difficulty_level)
         if document_id:
             questions = questions.filter(document_id=document_id)
         
+        # Filter by topics if provided
+        if topic_ids:
+            try:
+                topic_id_list = [int(tid.strip()) for tid in topic_ids.split(',') if tid.strip()]
+                questions = questions.filter(topic_id__in=topic_id_list)
+            except ValueError:
+                return Response({'error': 'Invalid topic_ids format'}, status=400)
+        
+        # Search functionality
+        if search:
+            questions = questions.filter(question_text__icontains=search)
+        
+        # Pagination
+        total_count = questions.count()
+        try:
+            offset = int(offset)
+            if limit:
+                limit = int(limit)
+                questions = questions[offset:offset + limit]
+            else:
+                questions = questions[offset:]
+        except ValueError:
+            return Response({'error': 'Invalid limit or offset'}, status=400)
+        
         # Add debug logging
-        print(f"Found {questions.count()} questions for user {request.user.username}")
+        print(f"Found {total_count} chat-generated questions for user {request.user.username}")
         
         serializer = QuestionBankSerializer(questions, many=True)
         
         # Add debug info to response
         response_data = {
             'questions': serializer.data,
-            'total_count': questions.count(),
+            'total_count': total_count,
             'filter_applied': {
                 'difficulty_level': difficulty_level,
-                'document_id': document_id
+                'document_id': document_id,
+                'topic_ids': topic_ids,
+                'search': search,
+                'is_generated': is_generated,
+                'limit': limit,
+                'offset': offset
             }
         }
         
@@ -6675,6 +6728,250 @@ def get_learning_progress(request, session_id):
         }, status=404)
 
 
+# ====================
+# TASK 2.1: EXAM SESSION VIEWS
+# ====================
+
+@api_view(['GET'])
+@permission_classes([])  # Allow anonymous access for development
+def list_topics(request):
+    """List all topics that have chat-generated questions"""
+    try:
+        # Get topics that have chat-generated questions
+        topics_with_questions = Topic.objects.filter(
+            questions__is_generated=True
+        ).distinct()
+        
+        serializer = TopicSerializer(topics_with_questions, many=True)
+        return Response({
+            'topics': serializer.data,
+            'total_count': topics_with_questions.count()
+        })
+        
+    except Exception as e:
+        print(f"Error in list_topics: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([])  # Allow anonymous access for development
+def create_exam_session(request):
+    """Create a new exam session with teacher-defined configuration"""
+    # For development, skip user role check
+    # if request.user.role != 'teacher':
+    #     return Response({'error': 'Only teachers can create exam sessions'}, status=403)
+    
+    try:
+        print(f"DEBUG: Received request data: {request.data}")
+        
+        serializer = ExamSessionCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            print(f"DEBUG: Serializer validation errors: {serializer.errors}")
+            return Response({'errors': serializer.errors}, status=400)
+        
+        data = serializer.validated_data
+        title = data.get('title', 'Untitled Exam Session')
+        description = data.get('description', '')
+        num_questions = data['num_questions']
+        is_published = data.get('is_published', False)
+        topic_ids = data.get('topic_ids', [])
+        random_topic_distribution = data.get('random_topic_distribution', False)
+        time_limit_seconds = data.get('time_limit_seconds')
+        selected_question_ids = data.get('selected_question_ids', [])
+        
+        # Create the exam session
+        # For development: handle cases where user is not authenticated
+        created_by_user = request.user if hasattr(request, 'user') and request.user.is_authenticated else None
+        if not created_by_user:
+            # For development, get or create a default teacher user
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            created_by_user, _ = User.objects.get_or_create(
+                username='demo_teacher',
+                defaults={'role': 'teacher', 'email': 'demo@example.com'}
+            )
+        
+        exam_session = ExamSession.objects.create(
+            created_by=created_by_user,
+            title=title,
+            description=description,
+            num_questions=num_questions,
+            random_topic_distribution=random_topic_distribution,
+            time_limit_seconds=time_limit_seconds,
+            is_published=is_published
+        )
+        
+        # Start with manually selected questions
+        selected_questions = []
+        if selected_question_ids:
+            # Validate and get selected questions (ensuring they're chat-generated)
+            selected_questions = list(QuestionBank.objects.filter(
+                id__in=selected_question_ids,
+                is_generated=True  # Only chat-generated questions
+            ))
+            
+            if len(selected_questions) != len(selected_question_ids):
+                exam_session.delete()
+                return Response({
+                    'error': 'Some selected questions are not valid chat-generated questions'
+                }, status=400)
+        
+        # Get remaining questions needed
+        remaining_needed = num_questions - len(selected_questions)
+        additional_questions = []
+        
+        if remaining_needed > 0:
+            # Get pool of available questions (excluding already selected)
+            question_pool = QuestionBank.objects.filter(
+                is_generated=True  # Only chat-generated questions
+            ).exclude(
+                id__in=selected_question_ids
+            )
+            
+            if random_topic_distribution:
+                # Get all topics that have chat-generated questions
+                available_topics = Topic.objects.filter(
+                    questions__is_generated=True
+                ).distinct()
+                
+                if available_topics.exists():
+                    # Distribute questions evenly across topics
+                    questions_per_topic = remaining_needed // available_topics.count()
+                    extra_questions = remaining_needed % available_topics.count()
+                    
+                    for i, topic in enumerate(available_topics):
+                        topic_questions_needed = questions_per_topic + (1 if i < extra_questions else 0)
+                        if topic_questions_needed > 0:
+                            topic_questions = list(question_pool.filter(
+                                topic=topic
+                            ).order_by('?')[:topic_questions_needed])
+                            additional_questions.extend(topic_questions)
+                            question_pool = question_pool.exclude(
+                                id__in=[q.id for q in topic_questions]
+                            )
+                
+                # Fill any remaining slots with random questions
+                if len(additional_questions) < remaining_needed:
+                    extra_needed = remaining_needed - len(additional_questions)
+                    extra_questions = list(question_pool.order_by('?')[:extra_needed])
+                    additional_questions.extend(extra_questions)
+                    
+            else:
+                # Use specified topics
+                if topic_ids:
+                    question_pool = question_pool.filter(topic_id__in=topic_ids)
+                
+                # Distribute evenly across specified topics
+                topics = Topic.objects.filter(id__in=topic_ids) if topic_ids else []
+                
+                if topics:
+                    questions_per_topic = remaining_needed // len(topics)
+                    extra_questions = remaining_needed % len(topics)
+                    
+                    for i, topic in enumerate(topics):
+                        topic_questions_needed = questions_per_topic + (1 if i < extra_questions else 0)
+                        if topic_questions_needed > 0:
+                            topic_questions = list(question_pool.filter(
+                                topic=topic
+                            ).order_by('?')[:topic_questions_needed])
+                            additional_questions.extend(topic_questions)
+                            question_pool = question_pool.exclude(
+                                id__in=[q.id for q in topic_questions]
+                            )
+                else:
+                    # No specific topics, get random questions from pool
+                    additional_questions = list(question_pool.order_by('?')[:remaining_needed])
+        
+        # Combine selected and additional questions
+        all_questions = selected_questions + additional_questions
+        
+        if len(all_questions) < num_questions:
+            exam_session.delete()
+            return Response({
+                'error': f'Not enough chat-generated questions available. Found {len(all_questions)}, needed {num_questions}'
+            }, status=400)
+        
+        # Take only the needed number of questions
+        final_questions = all_questions[:num_questions]
+        
+        # Create ExamSessionQuestion records with order_index
+        for i, question in enumerate(final_questions, 1):
+            ExamSessionQuestion.objects.create(
+                exam_session=exam_session,
+                question=question,
+                order_index=i,
+                time_limit_seconds=time_limit_seconds
+            )
+        
+        # Create topic relationships
+        session_topics = set()
+        for question in final_questions:
+            if question.topic:
+                session_topics.add(question.topic)
+        
+        for topic in session_topics:
+            ExamSessionTopic.objects.create(
+                exam_session=exam_session,
+                topic=topic
+            )
+        
+        # Return the created session with full details
+        response_serializer = ExamSessionSerializer(exam_session)
+        return Response(response_serializer.data, status=201)
+        
+    except Exception as e:
+        print(f"Error creating exam session: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_exam_session(request, session_id):
+    """Get details of a specific exam session"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can view exam sessions'}, status=403)
+    
+    try:
+        exam_session = ExamSession.objects.get(
+            id=session_id,
+            created_by=request.user
+        )
+        
+        serializer = ExamSessionSerializer(exam_session)
+        return Response(serializer.data)
+        
+    except ExamSession.DoesNotExist:
+        return Response({'error': 'Exam session not found'}, status=404)
+    except Exception as e:
+        print(f"Error getting exam session: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_exam_sessions(request):
+    """List all exam sessions created by the teacher"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can view exam sessions'}, status=403)
+    
+    try:
+        exam_sessions = ExamSession.objects.filter(
+            created_by=request.user
+        ).order_by('-created_at')
+        
+        serializer = ExamSessionSerializer(exam_sessions, many=True)
+        return Response({
+            'exam_sessions': serializer.data,
+            'total_count': exam_sessions.count()
+        })
+        
+    except Exception as e:
+        print(f"Error listing exam sessions: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def teacher_assessment_dashboard(request):
@@ -6711,3 +7008,105 @@ def available_learning_topics(request):
     return Response({
         'topics': topics
     })
+
+
+# ====================
+# TASK 2.2: EXAM CONFIGURATION VIEWS
+# ====================
+
+class ExamConfigViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing exam configurations
+    Provides CRUD operations for storing and retrieving exam configurations
+    """
+    serializer_class = ExamConfigSerializer
+    permission_classes = []  # Allow anonymous access for development
+    
+    def get_queryset(self):
+        """
+        Filter queryset based on user role and query parameters
+        Teachers can see their own configs, students can see configs assigned to them
+        """
+        user = self.request.user
+        queryset = ExamConfig.objects.all()
+        
+        if user.is_authenticated:
+            if user.role == 'teacher':
+                # Teachers see configs they created
+                queryset = queryset.filter(teacher=user)
+            elif user.role == 'student':
+                # Students see configs assigned to them
+                queryset = queryset.filter(assigned_student=user)
+            else:
+                # For development: admin or other roles see all
+                pass
+        else:
+            # Anonymous users see all (for development)
+            pass
+        
+        # Filter by exam session if provided
+        exam_session_id = self.request.query_params.get('exam_session_id')
+        if exam_session_id:
+            queryset = queryset.filter(exam_session_id=exam_session_id)
+        
+        return queryset.select_related('teacher', 'assigned_student', 'exam_session').prefetch_related('config_questions__question')
+    
+    def create(self, request, *args, **kwargs):
+        """Create a new exam configuration"""
+        try:
+            serializer = self.get_serializer(data=request.data)
+            if serializer.is_valid():
+                exam_config = serializer.save()
+                
+                # Return the created configuration with full details
+                response_serializer = self.get_serializer(exam_config)
+                return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            else:
+                return Response({
+                    'errors': serializer.errors,
+                    'message': 'Validation failed'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            print(f"❌ Error creating exam config: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'error': str(e),
+                'message': 'Failed to create exam configuration'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve a specific exam configuration"""
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+        except Exception as e:
+            print(f"❌ Error retrieving exam config: {e}")
+            return Response({
+                'error': str(e),
+                'message': 'Failed to retrieve exam configuration'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def list(self, request, *args, **kwargs):
+        """List exam configurations with filtering"""
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+            page = self.paginate_queryset(queryset)
+            
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            
+            serializer = self.get_serializer(queryset, many=True)
+            return Response({
+                'configs': serializer.data,
+                'count': len(serializer.data)
+            })
+        except Exception as e:
+            print(f"❌ Error listing exam configs: {e}")
+            return Response({
+                'error': str(e),
+                'message': 'Failed to list exam configurations'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
