@@ -13,11 +13,12 @@ import TextField from '@mui/material/TextField';
 import Alert from '@mui/material/Alert';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import { Chat, Schedule, Assignment, TrendingUp } from '@mui/icons-material';
+import { Chat, Schedule, Assignment, TrendingUp, Psychology } from '@mui/icons-material';
 import ChatbotQuestions from './components/dashboard/student/ChatbotQuestions';
 import StudentClasses from './components/dashboard/student/StudentClasses';
 import NewLevelTest from './components/dashboard/student/NewLevelTest';
 import CheckLevel from './components/dashboard/student/CheckLevel';
+import InteractiveLearning from './components/dashboard/student/InteractiveLearning';
 import TeacherDashboard from './components/dashboard/teacher/TeacherDashboard';
 import { useAuth } from './hooks/useAuth';
 import './styles/globals.css';
@@ -63,8 +64,10 @@ const App = () => {
       case 1:
         return <StudentClasses />;
       case 2:
-        return <NewLevelTest />;
+        return <InteractiveLearning />;
       case 3:
+        return <NewLevelTest />;
+      case 4:
         return <CheckLevel />;
       default:
         return <ChatbotQuestions />;
@@ -211,6 +214,11 @@ const App = () => {
                     <Tab 
                       icon={<Schedule sx={{ fontSize: '1.2rem' }} />} 
                       label="My Classes" 
+                      iconPosition="start"
+                    />
+                    <Tab 
+                      icon={<Psychology sx={{ fontSize: '1.2rem' }} />} 
+                      label="Interactive Learning" 
                       iconPosition="start"
                     />
                     <Tab 

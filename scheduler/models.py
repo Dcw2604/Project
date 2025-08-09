@@ -138,17 +138,54 @@ class QuestionBank(models.Model):
     class Meta:
         ordering = ['difficulty_level', '-created_at']
 
+# New model for teacher-created Exams
+class Exam(models.Model):
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_exams', limit_choices_to={'role': 'teacher'})
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    subject = models.CharField(max_length=100, default='math')
+    # Optional default difficulty for sampling; exams can be mixed
+    difficulty_level = models.CharField(max_length=2, choices=QuestionBank.DIFFICULTY_LEVELS, blank=True, null=True)
+
+    total_questions = models.IntegerField(default=10)
+    exam_time_limit_minutes = models.IntegerField(null=True, blank=True)
+    per_question_time_seconds = models.IntegerField(null=True, blank=True)
+
+    start_at = models.DateTimeField(null=True, blank=True)
+    end_at = models.DateTimeField(null=True, blank=True)
+    is_published = models.BooleanField(default=False)
+
+    # Assignments and question set
+    assigned_students = models.ManyToManyField(User, blank=True, related_name='assigned_exams', limit_choices_to={'role': 'student'})
+    questions = models.ManyToManyField(QuestionBank, blank=True, related_name='exams')
+
+    # Selection rules for random sampling, e.g. {"difficulty": {"3": 5, "4": 5}, "subject": "math"}
+    selection_rules = models.TextField(blank=True, null=True, help_text='Optional JSON rules for sampling questions')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Exam: {self.title} by {self.created_by.username}"
+
+    class Meta:
+        ordering = ['-created_at']
+
 # Test Sessions for students
 class TestSession(models.Model):
     TEST_TYPES = (
         ('level_test', 'Level Test'),
         ('practice_test', 'Practice Test'),
+        ('exam', 'Exam'),
     )
     
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='test_sessions')
     test_type = models.CharField(max_length=20, choices=TEST_TYPES)
     difficulty_level = models.CharField(max_length=2, choices=QuestionBank.DIFFICULTY_LEVELS)
     subject = models.CharField(max_length=100, default='math')
+    
+    # Link to exam when the session is created from a published exam
+    exam = models.ForeignKey('Exam', on_delete=models.SET_NULL, null=True, blank=True, related_name='sessions')
     
     # Test configuration
     total_questions = models.IntegerField(default=10)
@@ -183,3 +220,370 @@ class StudentAnswer(models.Model):
     
     class Meta:
         ordering = ['answered_at']
+
+
+# =================
+# INTERACTIVE LEARNING MODELS FOR SOCRATIC TUTORING
+# =================
+
+class ChatSession(models.Model):
+    """
+    Tracks interactive learning sessions where students explore topics through conversation
+    """
+    SESSION_TYPES = (
+        ('exam_chat', 'Exam Chat'),
+        ('interactive_learning', 'Interactive Learning'),
+        ('topic_exploration', 'Topic Exploration'),
+    )
+    
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('completed', 'Completed'), 
+        ('paused', 'Paused'),
+        ('abandoned', 'Abandoned'),
+    )
+    
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_sessions')
+    session_type = models.CharField(max_length=20, choices=SESSION_TYPES, default='interactive_learning')
+    topic = models.CharField(max_length=200, help_text="Main topic being explored")
+    subject = models.CharField(max_length=100, default='math')
+    
+    # Learning objectives
+    learning_goal = models.TextField(help_text="What the student should discover/understand")
+    current_understanding_level = models.IntegerField(default=0, help_text="0-100 scale of understanding")
+    
+    # Session tracking
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='active')
+    total_messages = models.IntegerField(default=0)
+    discoveries_made = models.IntegerField(default=0, help_text="Number of 'aha' moments detected")
+    
+    # Linked to exam if this is exam-based learning
+    exam = models.ForeignKey('Exam', on_delete=models.SET_NULL, null=True, blank=True)
+    current_question = models.ForeignKey('QuestionBank', on_delete=models.SET_NULL, null=True, blank=True)
+    
+    started_at = models.DateTimeField(auto_now_add=True)
+    last_activity = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Progress tracking
+    engagement_score = models.FloatField(default=0.0, help_text="0-1 scale of student engagement")
+    confusion_indicators = models.IntegerField(default=0, help_text="Count of confusion signals")
+    breakthrough_moments = models.IntegerField(default=0, help_text="Major understanding breakthroughs")
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.topic} ({self.session_type})"
+    
+    class Meta:
+        ordering = ['-started_at']
+
+
+class ConversationMessage(models.Model):
+    """
+    Individual messages in a learning conversation with analysis
+    """
+    MESSAGE_TYPES = (
+        ('student_question', 'Student Question'),
+        ('student_answer', 'Student Answer'),
+        ('ai_guidance', 'AI Guidance'),
+        ('ai_question', 'AI Question'),
+        ('hint', 'Hint'),
+        ('encouragement', 'Encouragement'),
+    )
+    
+    UNDERSTANDING_LEVELS = (
+        ('confused', 'Confused'),
+        ('partial', 'Partial Understanding'),
+        ('good', 'Good Understanding'),
+        ('mastery', 'Mastery'),
+    )
+    
+    chat_session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='messages')
+    message_type = models.CharField(max_length=20, choices=MESSAGE_TYPES)
+    content = models.TextField()
+    sender = models.CharField(max_length=10, choices=[('student', 'Student'), ('ai', 'AI')])
+    
+    # Message analysis
+    sentiment_score = models.FloatField(null=True, blank=True, help_text="TextBlob sentiment: -1 to 1")
+    understanding_level = models.CharField(max_length=15, choices=UNDERSTANDING_LEVELS, null=True, blank=True)
+    contains_question = models.BooleanField(default=False)
+    shows_confusion = models.BooleanField(default=False)
+    shows_discovery = models.BooleanField(default=False)
+    
+    # Response quality (for AI messages)
+    led_to_discovery = models.BooleanField(default=False, help_text="Did this AI message lead to student discovery?")
+    hint_level = models.IntegerField(null=True, blank=True, help_text="1-5 scale, 1=gentle nudge, 5=direct guidance")
+    
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.sender}: {self.content[:50]}... ({self.chat_session.topic})"
+    
+    class Meta:
+        ordering = ['timestamp']
+
+
+class ConversationInsight(models.Model):
+    """
+    AI analysis of conversation patterns and student learning progression
+    """
+    INSIGHT_TYPES = (
+        ('breakthrough', 'Learning Breakthrough'),
+        ('confusion_pattern', 'Confusion Pattern'),
+        ('engagement_change', 'Engagement Change'),
+        ('topic_mastery', 'Topic Mastery'),
+        ('learning_style', 'Learning Style Indicator'),
+    )
+    
+    chat_session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='insights')
+    insight_type = models.CharField(max_length=20, choices=INSIGHT_TYPES)
+    description = models.TextField(help_text="What was observed/discovered")
+    confidence_score = models.FloatField(help_text="0-1 confidence in this insight")
+    
+    # Related messages that led to this insight
+    trigger_messages = models.ManyToManyField(ConversationMessage, blank=True)
+    
+    # Actionable recommendations
+    recommendation = models.TextField(blank=True, help_text="What should happen next based on this insight")
+    
+    detected_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.insight_type}: {self.description[:50]}..."
+    
+    class Meta:
+        ordering = ['-detected_at']
+
+
+class LearningPath(models.Model):
+    """
+    Adaptive learning path that evolves based on student conversations and discoveries
+    """
+    PATH_STATUS = (
+        ('suggested', 'Suggested'),
+        ('active', 'Active'),
+        ('completed', 'Completed'),
+        ('modified', 'Modified'),
+    )
+    
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='learning_paths')
+    subject = models.CharField(max_length=100, default='math')
+    current_topic = models.CharField(max_length=200)
+    
+    # Path progression
+    status = models.CharField(max_length=15, choices=PATH_STATUS, default='suggested')
+    topics_sequence = models.TextField(help_text="JSON list of topics in learning order")
+    current_position = models.IntegerField(default=0, help_text="Current position in sequence")
+    
+    # Adaptation factors
+    student_strengths = models.TextField(blank=True, help_text="JSON list of identified strengths")
+    areas_for_growth = models.TextField(blank=True, help_text="JSON list of areas needing work")
+    learning_preferences = models.TextField(blank=True, help_text="JSON learning style preferences")
+    
+    # Milestones and progress
+    milestones_achieved = models.TextField(blank=True, help_text="JSON list of completed milestones")
+    estimated_completion = models.DateField(null=True, blank=True)
+    actual_progress_percent = models.FloatField(default=0.0)
+    
+    # Linked sessions and insights
+    chat_sessions = models.ManyToManyField(ChatSession, blank=True, related_name='learning_paths')
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.subject}: {self.current_topic}"
+    
+    class Meta:
+        ordering = ['-last_updated']
+
+
+class AdaptiveDifficultyTracker(models.Model):
+    """
+    Tracks student performance and adapts question difficulty dynamically
+    """
+    DIFFICULTY_LEVELS = (
+        (1, 'Level 1 - Foundation'),
+        (2, 'Level 2 - Basic'),
+        (3, 'Level 3 - Intermediate'),
+        (4, 'Level 4 - Advanced'),
+        (5, 'Level 5 - Expert'),
+    )
+    
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='difficulty_trackers')
+    topic = models.CharField(max_length=200, help_text="Specific topic being learned")
+    subject = models.CharField(max_length=100, default='math')
+    
+    # Current difficulty and progression
+    current_difficulty = models.IntegerField(choices=DIFFICULTY_LEVELS, default=1, help_text="Current difficulty level")
+    target_difficulty = models.IntegerField(choices=DIFFICULTY_LEVELS, default=3, help_text="Target difficulty to reach")
+    
+    # Performance metrics
+    consecutive_successes = models.IntegerField(default=0, help_text="Consecutive correct answers")
+    consecutive_failures = models.IntegerField(default=0, help_text="Consecutive incorrect answers")
+    total_attempts = models.IntegerField(default=0)
+    total_successes = models.IntegerField(default=0)
+    
+    # Progression rules
+    success_threshold_to_advance = models.IntegerField(default=2, help_text="Consecutive successes needed to advance")
+    failure_threshold_to_regress = models.IntegerField(default=3, help_text="Consecutive failures to regress difficulty")
+    min_attempts_before_advance = models.IntegerField(default=3, help_text="Minimum attempts before advancing")
+    
+    # Confidence and mastery tracking
+    confidence_score = models.FloatField(default=0.5, help_text="0-1 scale of student confidence")
+    mastery_percentage = models.FloatField(default=0.0, help_text="0-100 scale of topic mastery")
+    
+    # Session tracking
+    chat_session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='difficulty_tracker', null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    
+    def calculate_success_rate(self):
+        """Calculate overall success rate"""
+        if self.total_attempts == 0:
+            return 0.0
+        return (self.total_successes / self.total_attempts) * 100
+    
+    def should_advance_difficulty(self):
+        """Determine if difficulty should be increased"""
+        return (
+            self.consecutive_successes >= self.success_threshold_to_advance and
+            self.total_attempts >= self.min_attempts_before_advance and
+            self.current_difficulty < self.target_difficulty
+        )
+    
+    def should_regress_difficulty(self):
+        """Determine if difficulty should be decreased"""
+        return (
+            self.consecutive_failures >= self.failure_threshold_to_regress and
+            self.current_difficulty > 1
+        )
+    
+    def update_performance(self, success, confidence_change=0):
+        """Update performance metrics after a question attempt"""
+        self.total_attempts += 1
+        
+        if success:
+            self.total_successes += 1
+            self.consecutive_successes += 1
+            self.consecutive_failures = 0
+            self.confidence_score = min(1.0, self.confidence_score + 0.1 + confidence_change)
+        else:
+            self.consecutive_successes = 0
+            self.consecutive_failures += 1
+            self.confidence_score = max(0.0, self.confidence_score - 0.1 + confidence_change)
+        
+        # Update mastery percentage
+        self.mastery_percentage = min(100.0, (self.calculate_success_rate() + self.confidence_score * 20))
+        
+        # Auto-adjust difficulty
+        if self.should_advance_difficulty():
+            self.current_difficulty = min(5, self.current_difficulty + 1)
+            self.consecutive_successes = 0  # Reset after advancing
+        elif self.should_regress_difficulty():
+            self.current_difficulty = max(1, self.current_difficulty - 1)
+            self.consecutive_failures = 0  # Reset after regressing
+        
+        self.save()
+        return self.current_difficulty
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.topic} - Level {self.current_difficulty} ({self.calculate_success_rate():.1f}% success)"
+    
+    class Meta:
+        unique_together = ['student', 'topic', 'chat_session']
+        ordering = ['-last_updated']
+
+
+class QuestionAttempt(models.Model):
+    """
+    Records individual question attempts for detailed analytics
+    """
+    ATTEMPT_RESULTS = (
+        ('correct', 'Correct'),
+        ('incorrect', 'Incorrect'),
+        ('partial', 'Partially Correct'),
+        ('skipped', 'Skipped'),
+    )
+    
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='question_attempts')
+    chat_session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='question_attempts')
+    difficulty_tracker = models.ForeignKey(AdaptiveDifficultyTracker, on_delete=models.CASCADE, related_name='attempts')
+    
+    # Question details
+    question_text = models.TextField(help_text="The exact question asked")
+    difficulty_level = models.IntegerField(choices=AdaptiveDifficultyTracker.DIFFICULTY_LEVELS)
+    topic = models.CharField(max_length=200)
+    
+    # Student response
+    student_answer = models.TextField()
+    result = models.CharField(max_length=10, choices=ATTEMPT_RESULTS)
+    time_taken_seconds = models.IntegerField(null=True, blank=True)
+    
+    # Context and analysis
+    hint_level_used = models.IntegerField(default=0, help_text="0-5 scale of hints needed")
+    confidence_before = models.FloatField(null=True, blank=True, help_text="Student confidence before attempt")
+    confidence_after = models.FloatField(null=True, blank=True, help_text="Student confidence after attempt")
+    
+    # AI analysis
+    understanding_demonstrated = models.TextField(blank=True, help_text="What understanding the student showed")
+    misconceptions_identified = models.TextField(blank=True, help_text="Any misconceptions detected")
+    
+    attempted_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.topic} L{self.difficulty_level} - {self.result}"
+    
+    class Meta:
+        ordering = ['-attempted_at']
+
+
+class LearningSession(models.Model):
+    """Track structured learning sessions with step-by-step questions"""
+    student = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'student'})
+    topic = models.CharField(max_length=100)  # e.g., "Linear Equations", "Fractions"
+    subject = models.CharField(max_length=50, default='Mathematics')
+    
+    # Session state
+    current_question_index = models.IntegerField(default=0)
+    total_questions = models.IntegerField(default=10)
+    is_completed = models.BooleanField(default=False)
+    
+    # Performance tracking
+    correct_answers = models.IntegerField(default=0)
+    total_attempts = models.IntegerField(default=0)
+    understanding_level = models.IntegerField(default=0)  # 0-100%
+    
+    # Timestamps
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Assessment results for teacher
+    strengths = models.TextField(blank=True, null=True)  # JSON of strong areas
+    weaknesses = models.TextField(blank=True, null=True)  # JSON of weak areas
+    recommendations = models.TextField(blank=True, null=True)  # What to focus on
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.topic} ({self.understanding_level}%)"
+
+class QuestionResponse(models.Model):
+    """Track individual question responses within a learning session"""
+    session = models.ForeignKey(LearningSession, on_delete=models.CASCADE, related_name='responses')
+    question_text = models.TextField()
+    student_answer = models.TextField()
+    is_correct = models.BooleanField()
+    attempts_count = models.IntegerField(default=1)
+    hint_level_reached = models.IntegerField(default=0)
+    
+    # AI feedback
+    ai_feedback = models.TextField(blank=True, null=True)
+    time_taken_seconds = models.IntegerField(default=0)
+    
+    # Skill assessment
+    skill_demonstrated = models.CharField(max_length=100, blank=True, null=True)  # e.g., "algebraic_manipulation"
+    difficulty_level = models.IntegerField(default=1)  # 1-5
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Q{self.session.current_question_index}: {'✓' if self.is_correct else '✗'}"

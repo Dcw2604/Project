@@ -6,7 +6,13 @@ import os
 import tempfile
 import json
 import time
-import pdfplumber
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+    print("⚠️ pdfplumber not available - PDF processing disabled")
+
 from PIL import Image, ImageEnhance, ImageFilter
 import io
 import hashlib
@@ -122,6 +128,11 @@ class DocumentProcessor:
             'images_detected': 0,
             'processing_errors': []
         }
+        
+        if not PDFPLUMBER_AVAILABLE:
+            result['processing_errors'].append("pdfplumber not available - PDF processing disabled")
+            result['text'] = "PDF processing temporarily unavailable. Please install pdfplumber."
+            return result
         
         try:
             with pdfplumber.open(file_path) as pdf:
