@@ -48,6 +48,7 @@ import {
   CloudUpload,
   AutoAwesome
 } from '@mui/icons-material';
+import CreateExamSession from './CreateExamSession';
 
 const StyledCard = styled(Card)(({ theme }) => ({
   background: 'rgba(255, 255, 255, 0.1)',
@@ -74,6 +75,13 @@ if (typeof document !== 'undefined') {
 }
 
 const ManageTests = () => {
+  const [examSessionDialog, setExamSessionDialog] = useState(false);
+  const handleCreateExamSession = (settings) => {
+    // TODO: Send settings to backend to generate exam session
+    console.log('Exam session settings:', settings);
+    setExamSessionDialog(false);
+    // Optionally show a snackbar or alert for success
+  };
   const [activeTab, setActiveTab] = useState(0);
   const [documents, setDocuments] = useState([]);
   const [questions, setQuestions] = useState([]);
@@ -698,6 +706,14 @@ const ManageTests = () => {
           🧠 Question Bank Management
         </Typography>
         <Stack direction="row" spacing={2}>
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={() => setExamSessionDialog(true)}
+            sx={{ borderRadius: '12px', fontWeight: 600 }}
+          >
+            Create Exam Session
+          </Button>
           <FormControl size="small" sx={{ minWidth: 120 }}>
             <InputLabel sx={{ color: 'white' }}>Filter Level</InputLabel>
             <Select
@@ -748,22 +764,33 @@ const ManageTests = () => {
           >
             Create Test Questions
           </Button>
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => {
-              setSelectedQuestion(null);
-              setQuestionDialog(true);
-            }}
-            sx={{
-              background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-              borderRadius: '12px',
-              textTransform: 'none',
-              fontWeight: 600
-            }}
-          >
-            Add Question
-          </Button>
+      <Button
+        variant="contained"
+        startIcon={<Add />}
+        onClick={() => {
+          setSelectedQuestion(null);
+          setQuestionDialog(true);
+        }}
+        sx={{
+          background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+          borderRadius: '12px',
+          textTransform: 'none',
+          fontWeight: 600
+        }}
+      >
+        Add Question
+      </Button>
+      {/* Removed duplicate Create Exam Session button to avoid overflow issues */}
+      {/* Exam Session Creation Dialog */}
+      <Dialog open={examSessionDialog} onClose={() => setExamSessionDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Exam Session</DialogTitle>
+        <DialogContent>
+          <CreateExamSession onCreate={handleCreateExamSession} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExamSessionDialog(false)} color="secondary">Cancel</Button>
+        </DialogActions>
+      </Dialog>
         </Stack>
       </Box>
 

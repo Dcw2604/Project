@@ -21,7 +21,8 @@ from .serializers import (
 )
 from .models import (
     User, Lesson, ChatInteraction, Document, LearningSession, QuestionResponse,
-    QuestionBank, Topic, ExamSession, ExamSessionTopic, ExamSessionQuestion, ExamConfig, ExamConfigQuestion
+    QuestionBank, Topic, ExamSession, ExamSessionTopic, ExamSessionQuestion, ExamConfig, ExamConfigQuestion,
+    StudentAnswer, ExamAnswerAttempt
 )
 from .structured_learning import StructuredLearningManager
 # Temporarily disable imports to get server running
@@ -835,9 +836,14 @@ Continue with the current question when ready."""
         return Response({'error': f'Command error: {str(e)}'}, status=500)
 
 def handle_exam_chat_interaction(user, student_answer, test_session_id):
-    """Handle student responses during exam chat mode"""
+    """
+    Handle interactive exam flow via Ollama (OLLaMA) + LangChain, with RAG over teacher-uploaded documents.
+    Generates 10-question exam dynamically from teacher's documents only (no static QuestionBank).
+    """
     try:
-        from .models import TestSession, QuestionBank, StudentAnswer, Exam
+        from .models import TestSession, ExamAnswerAttempt, Document
+        
+        print(f"🎯 Interactive Exam Flow - Student: {user.username}, Answer: '{student_answer[:50]}...'")
         
         # Get the test session
         session = TestSession.objects.get(id=test_session_id, student=user, test_type='exam')
@@ -850,407 +856,405 @@ def handle_exam_chat_interaction(user, student_answer, test_session_id):
             except json.JSONDecodeError:
                 notes = {}
         
-        question_sequence = notes.get('question_sequence', [])
-        current_index = notes.get('current_question_index', 0)
+        # Initialize session state if needed
+        if 'question_index' not in notes:
+            notes['question_index'] = 0
+            notes['attempts_for_current'] = 0
+            notes['score_correct'] = 0
+            notes['level'] = notes.get('level', 'intermediate')  # Default difficulty
+            notes['exam_start_time'] = timezone.now().isoformat()
         
-        if current_index >= len(question_sequence):
-            return Response({
-                'error': 'Exam has been completed',
-                'exam_complete': True
-            }, status=400)
+        current_index = notes['question_index']
+        attempts_for_current = notes['attempts_for_current']
         
-        # Handle special commands
-        student_answer_lower = student_answer.strip().lower()
-        
-        # Check for help/status commands
-        if student_answer_lower in ['help', 'status', 'progress', 'time']:
-            return handle_exam_command(user, student_answer_lower, session, notes)
-        
-        # Get current question (support both original and variation questions)
-        current_question_info = question_sequence[current_index]
-        
-        if isinstance(current_question_info, dict):
-            # New format with variation support
-            if current_question_info['type'] == 'variation':
-                # This is a generated variation - create question object from stored data
-                q_data = current_question_info['data']
-                
-                class VariationQuestion:
-                    def __init__(self, data):
-                        self.id = current_question_info['id']
-                        self.question_text = data['question_text']
-                        self.correct_answer = data['correct_answer']
-                        self.option_a = data['option_a']
-                        self.option_b = data['option_b']
-                        self.option_c = data['option_c']
-                        self.option_d = data['option_d']
-                        self.question_type = data['question_type']
-                        self.difficulty_level = data['difficulty_level']
-                        self.subject = data['subject']
-                        self.explanation = data['explanation']
-                        self.is_variation = True
-                        self.base_question_id = data['base_question_id']
-                
-                current_question = VariationQuestion(q_data)
-            else:
-                # Original question - get from database
-                current_question = QuestionBank.objects.get(id=current_question_info['id'])
-        else:
-            # Old format - backwards compatibility
-            current_question_id = current_question_info
-            current_question = QuestionBank.objects.get(id=current_question_id)
-        
-        # Process student's answer
-        is_correct = False
-        processed_answer = student_answer.strip().upper()
-        
-        # Check if answer is correct
-        correct_answer = current_question.correct_answer.strip().upper()
-        
-        # For multiple choice, allow letter-only answers
-        if current_question.question_type == 'multiple_choice':
-            if len(processed_answer) == 1 and processed_answer in ['A', 'B', 'C', 'D']:
-                # Student answered with just the letter
-                is_correct = (processed_answer == correct_answer)
-            else:
-                # Check if full text matches any option
-                options = {
-                    'A': current_question.option_a,
-                    'B': current_question.option_b, 
-                    'C': current_question.option_c,
-                    'D': current_question.option_d
-                }
-                for letter, option_text in options.items():
-                    if option_text and processed_answer in option_text.upper():
-                        is_correct = (letter == correct_answer)
-                        processed_answer = letter
-                        break
-                else:
-                    # Direct text comparison
-                    is_correct = (processed_answer == correct_answer)
-        else:
-            # For open-ended questions, do text comparison
-            is_correct = (processed_answer == correct_answer)
-        
-        # Save student's answer with timestamp
-        from django.utils import timezone
-        
-        # For variation questions, we need to handle the answer differently
-        if hasattr(current_question, 'is_variation') and current_question.is_variation:
-            # For variations, store answer with reference to base question
-            base_question = QuestionBank.objects.get(id=current_question.base_question_id)
-            StudentAnswer.objects.create(
-                test_session=session,
-                question=base_question,  # Link to base question for database consistency
-                student_answer=student_answer,
-                is_correct=is_correct,
-                notes=json.dumps({
-                    'is_variation': True,
-                    'variation_id': current_question.id,
-                    'varied_question_text': current_question.question_text,
-                    'varied_correct_answer': current_question.correct_answer,
-                    'question_number': current_index + 1
-                })
-            )
-        else:
-            # Original question
-            StudentAnswer.objects.create(
-                test_session=session,
-                question=current_question,
-                student_answer=student_answer,
-                is_correct=is_correct,
-                notes=json.dumps({
-                    'is_variation': False,
-                    'question_number': current_index + 1
-                })
-            )
-        
-        # Move to next question
-        next_index = current_index + 1
-        total_questions = len(question_sequence)
-        
-        if next_index >= total_questions:
-            # Exam completed
-            session.session_complete = True
+        # 1) Generate questions if not already done
+        if 'questions' not in notes or not notes['questions']:
+            print("📚 Generating questions from teacher documents...")
+            result = _generate_exam_questions_from_docs(session, notes.get('level', 'intermediate'))
+            if 'error' in result:
+                return Response(result, status=400)
+            
+            notes['questions'] = result['questions']
+            notes['vector_store_id'] = result['vector_store_id']
+            session.notes = json.dumps(notes)
             session.save()
-            
-            # Calculate comprehensive score and timing
-            correct_count = StudentAnswer.objects.filter(
-                test_session=session,
-                is_correct=True
-            ).count()
-            
-            # Calculate final time
-            from django.utils import timezone
-            current_time = timezone.now()
-            exam_start_time_str = notes.get('exam_start_time')
-            final_time = ""
-            
-            if exam_start_time_str:
-                try:
-                    from datetime import datetime
-                    exam_start_time = datetime.fromisoformat(exam_start_time_str.replace('Z', '+00:00'))
-                    time_elapsed = (current_time - exam_start_time).total_seconds()
-                    minutes_elapsed = int(time_elapsed // 60)
-                    seconds_elapsed = int(time_elapsed % 60)
-                    final_time = f"{minutes_elapsed}:{seconds_elapsed:02d}"
-                except Exception as e:
-                    print(f"Final time calculation error: {e}")
-                    final_time = "Unknown"
-            
-            # Performance feedback
-            score_percentage = (correct_count/total_questions)*100
-            performance_emoji = "🌟" if score_percentage >= 90 else "�" if score_percentage >= 80 else "📚" if score_percentage >= 70 else "💪"
-            
-            performance_message = ""
-            if score_percentage >= 90:
-                performance_message = "Excellent work! Outstanding performance!"
-            elif score_percentage >= 80:
-                performance_message = "Great job! You did very well!"
-            elif score_percentage >= 70:
-                performance_message = "Good work! You have a solid understanding!"
-            elif score_percentage >= 60:
-                performance_message = "Not bad! Keep studying to improve further!"
-            else:
-                performance_message = "Keep practicing! There's room for improvement!"
-            
-            # Count variations vs original questions
-            variation_count = 0
-            original_count = 0
-            for q_info in question_sequence:
-                if isinstance(q_info, dict) and q_info.get('type') == 'variation':
-                    variation_count += 1
-                else:
-                    original_count += 1
-            
-            # Enhanced completion message with variation info
-            variation_info = ""
-            if variation_count > 0:
-                variation_info = f"\n🔄 **Exam included {variation_count} varied questions and {original_count} original questions for enhanced learning!**"
-            
-            completion_message = f"""{performance_emoji} **Exam Completed!**
-
-**Final Results:**
-- Questions Answered: {total_questions}
-- Correct Answers: {correct_count}
-- Score: {score_percentage:.1f}%
-- Total Time: {final_time}{variation_info}
-
-{performance_message}
-
-Thank you for taking the exam. Your results have been submitted to your teacher."""
-            
-            # Save completion message
-            ChatInteraction.objects.create(
-                student=user,
-                question=f"[EXAM ANSWER] {student_answer}",
-                answer=completion_message,
-                topic="Exam Complete",
-                notes=json.dumps({
-                    "exam_mode": True,
-                    "exam_complete": True,
-                    "final_score": f"{correct_count}/{total_questions}",
-                    "test_session_id": session.id
-                })
-            )
-            
-            return Response({
-                'success': True,
-                'exam_complete': True,
-                'chatbot_message': completion_message,
-                'final_results': {
-                    'total_questions': total_questions,
-                    'correct_answers': correct_count,
-                    'score_percentage': (correct_count/total_questions)*100,
-                    'test_session_id': session.id
-                }
-            })
+            print(f"✅ Generated {len(notes['questions'])} questions")
         
-        else:
-            # Show next question (support variations)
-            next_question_info = question_sequence[next_index]
-            
-            if isinstance(next_question_info, dict):
-                # New format with variation support
-                if next_question_info['type'] == 'variation':
-                    # This is a generated variation
-                    q_data = next_question_info['data']
-                    
-                    class VariationQuestion:
-                        def __init__(self, data):
-                            self.id = next_question_info['id']
-                            self.question_text = data['question_text']
-                            self.correct_answer = data['correct_answer']
-                            self.option_a = data['option_a']
-                            self.option_b = data['option_b']
-                            self.option_c = data['option_c']
-                            self.option_d = data['option_d']
-                            self.question_type = data['question_type']
-                            self.difficulty_level = data['difficulty_level']
-                            self.subject = data['subject']
-                            self.explanation = data['explanation']
-                            self.is_variation = True
-                    
-                    next_question = VariationQuestion(q_data)
-                else:
-                    # Original question - get from database
-                    next_question = QuestionBank.objects.get(id=next_question_info['id'])
-            else:
-                # Old format - backwards compatibility
-                next_question_id = next_question_info
-                next_question = QuestionBank.objects.get(id=next_question_id)
-            
-            # Update session progress
-            notes['current_question_index'] = next_index
+        # 2) Check if exam completed
+        if current_index >= 10:
+            return _handle_exam_completion(session, notes)
+        
+        # 3) Get current question
+        current_question = notes['questions'][current_index]
+        
+        # 4) Evaluate student answer using LLM with RAG
+        print(f"📝 Evaluating answer for question {current_index + 1}")
+        evaluation_result = _eval_answer_with_llm(current_question, student_answer, notes['vector_store_id'])
+        
+        # 5) Create attempt record
+        attempt = ExamAnswerAttempt.objects.create(
+            test_session=session,
+            student=user,
+            question_id=current_question['id'],
+            attempt_number=attempts_for_current + 1,
+            answer_text=student_answer,
+            is_correct=evaluation_result['is_correct'],
+            time_taken_seconds=None,  # Could be calculated if needed
+            notes=json.dumps({
+                'llm_feedback': evaluation_result.get('feedback_short', ''),
+                'canonical_answer': evaluation_result.get('canonical_answer', ''),
+                'source_doc_ids': evaluation_result.get('source_doc_ids', []),
+                'question_text': current_question['text'],
+                'question_type': current_question.get('type', 'open')
+            })
+        )
+        
+        # 6) Handle correct vs incorrect responses
+        if evaluation_result['is_correct']:
+            # Correct answer - advance to next question
+            print(f"✅ Correct answer for question {current_index + 1}")
+            notes['question_index'] = current_index + 1
+            notes['attempts_for_current'] = 0
+            notes['score_correct'] += 1
             session.notes = json.dumps(notes)
             session.save()
             
-            # Format next question
-            question_text = next_question.question_text
-            options = []
-            if next_question.option_a:
-                options.append(f"A) {next_question.option_a}")
-            if next_question.option_b:
-                options.append(f"B) {next_question.option_b}")
-            if next_question.option_c:
-                options.append(f"C) {next_question.option_c}")
-            if next_question.option_d:
-                options.append(f"D) {next_question.option_d}")
-            
-            if options:
-                question_display = f"{question_text}\n\n" + "\n".join(options)
+            # Return success response
+            if notes['question_index'] >= 10:
+                return _handle_exam_completion(session, notes)
             else:
-                question_display = question_text
+                next_question = notes['questions'][notes['question_index']]
+                return Response({
+                    'status': 'correct',
+                    'question': {
+                        'id': next_question['id'],
+                        'text': next_question['text'],
+                        'type': next_question.get('type', 'open'),
+                        'options': next_question.get('options')
+                    },
+                    'progress': {
+                        'current': notes['question_index'] + 1,
+                        'total': 10,
+                        'attempts_for_current': 0,
+                        'score_correct': notes['score_correct']
+                    },
+                    'canonical_answer': evaluation_result.get('canonical_answer', ''),
+                    'sources': evaluation_result.get('source_doc_ids', []),
+                    'session_id': session.id
+                })
+        else:
+            # Incorrect answer
+            print(f"❌ Incorrect answer for question {current_index + 1}, attempt {attempts_for_current + 1}")
+            notes['attempts_for_current'] = attempts_for_current + 1
             
-            # Create response message with appropriate feedback
-            # For exam mode, we provide minimal feedback to maintain integrity
-            feedback_emoji = "✅" if is_correct else "📝"
-            
-            # Create time-aware response
-            from django.utils import timezone
-            current_time = timezone.now()
-            exam_start_time_str = notes.get('exam_start_time')
-            
-            # Calculate time spent
-            time_info = ""
-            if exam_start_time_str:
-                try:
-                    from datetime import datetime
-                    exam_start_time = datetime.fromisoformat(exam_start_time_str.replace('Z', '+00:00'))
-                    time_elapsed = (current_time - exam_start_time).total_seconds()
-                    minutes_elapsed = int(time_elapsed // 60)
-                    seconds_elapsed = int(time_elapsed % 60)
-                    
-                    # Get exam time limit
-                    exam = session.exam
-                    if exam and exam.exam_time_limit_minutes:
-                        remaining_minutes = exam.exam_time_limit_minutes - minutes_elapsed
-                        if remaining_minutes <= 5:  # Warn when 5 minutes left
-                            time_info = f"\n⏰ **Time Warning:** {remaining_minutes} minutes remaining!"
-                        elif remaining_minutes <= 0:
-                            # Time's up - end exam
-                            session.session_complete = True
-                            session.save()
-                            
-                            timeout_message = f"""⏰ **Time's Up!**
+            if notes['attempts_for_current'] <= 3:
+                # Generate hint
+                hint_text = _make_hint(current_question, student_answer, notes['vector_store_id'], notes['attempts_for_current'])
+                session.notes = json.dumps(notes)
+                session.save()
+                
+                return Response({
+                    'status': 'hint',
+                    'question': {
+                        'id': current_question['id'],
+                        'text': current_question['text'],
+                        'type': current_question.get('type', 'open'),
+                        'options': current_question.get('options')
+                    },
+                    'progress': {
+                        'current': current_index + 1,
+                        'total': 10,
+                        'attempts_for_current': notes['attempts_for_current'],
+                        'score_correct': notes['score_correct']
+                    },
+                    'hint': hint_text,
+                    'sources': evaluation_result.get('source_doc_ids', []),
+                    'session_id': session.id
+                })
+            else:
+                # 4th attempt - reveal answer and advance
+                explanation = _make_reveal(current_question, notes['vector_store_id'])
+                notes['question_index'] = current_index + 1
+                notes['attempts_for_current'] = 0
+                session.notes = json.dumps(notes)
+                session.save()
+                
+                if notes['question_index'] >= 10:
+                    return _handle_exam_completion(session, notes)
+                else:
+                    next_question = notes['questions'][notes['question_index']]
+                    return Response({
+                        'status': 'reveal',
+                        'question': {
+                            'id': next_question['id'],
+                            'text': next_question['text'],
+                            'type': next_question.get('type', 'open'),
+                            'options': next_question.get('options')
+                        },
+                        'progress': {
+                            'current': notes['question_index'] + 1,
+                            'total': 10,
+                            'attempts_for_current': 0,
+                            'score_correct': notes['score_correct']
+                        },
+                        'explanation': explanation,
+                        'canonical_answer': evaluation_result.get('canonical_answer', ''),
+                        'sources': evaluation_result.get('source_doc_ids', []),
+                        'session_id': session.id
+                    })
+    
+    except Exception as e:
+        print(f"❌ Exam interaction error: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'error': str(e)}, status=500)
 
-The exam time limit has been reached. Your answers have been automatically submitted.
+
+def _generate_exam_questions_from_docs(user, num_questions=10):
+    """Generate exam questions using RAG over teacher documents"""
+    try:
+        print(f"🎯 Generating {num_questions} exam questions for user {user.id}")
+        
+        # Use global RAG processor
+        global rag_processor
+        if not rag_processor:
+            print("❌ RAG processor not available")
+            return []
+        
+        # Generate questions using RAG
+        query = f"""Generate {num_questions} diverse exam questions based on the uploaded course materials. 
+        Include a mix of difficulty levels (easy, medium, hard) and question types.
+        Each question should test understanding of key concepts from the documents.
+        
+        Return a JSON array with this exact format:
+        [
+            {{
+                "question_text": "Question text here",
+                "question_type": "multiple_choice or open_ended",
+                "difficulty_level": "easy/medium/hard",
+                "subject": "topic name",
+                "options": {{"A": "option 1", "B": "option 2", "C": "option 3", "D": "option 4"}},
+                "correct_answer": "A or correct text",
+                "explanation": "Why this is correct"
+            }}
+        ]"""
+        
+        result = rag_processor.query_with_rag(query, user_id=user.id)
+        response_text = result.get('response', '')
+        
+        # Extract JSON from response
+        import json
+        try:
+            start_idx = response_text.find('[')
+            end_idx = response_text.rfind(']') + 1
+            if start_idx != -1 and end_idx != 0:
+                json_str = response_text[start_idx:end_idx]
+                questions = json.loads(json_str)
+                print(f"✅ Generated {len(questions)} questions successfully")
+                return questions
+        except:
+            pass
+        
+        # Fallback: parse manually or return default
+        print("⚠️ Could not parse generated questions, using fallback")
+        return []
+        
+    except Exception as e:
+        print(f"❌ Question generation error: {e}")
+        return []
+
+
+def _eval_answer_with_llm(question_data, student_answer, attempt_num):
+    """Evaluate student answer using LLM"""
+    try:
+        global rag_processor
+        if not rag_processor:
+            return {'correct': False, 'explanation': 'Evaluation system unavailable'}
+        
+        prompt = f"""Evaluate this student's answer to the exam question:
+
+Question: {question_data['question_text']}
+Correct Answer: {question_data['correct_answer']}
+Student Answer: {student_answer}
+Attempt Number: {attempt_num}
+
+Please evaluate if the student's answer is correct, partially correct, or incorrect.
+Consider semantic meaning, not just exact text matching.
+
+Return a JSON response with this format:
+{{
+    "correct": true/false,
+    "score": 0.0-1.0,
+    "explanation": "detailed explanation of correctness",
+    "feedback": "constructive feedback for the student",
+    "canonical_answer": "the expected answer format"
+}}"""
+        
+        result = rag_processor.query_with_rag(prompt, user_id=None)
+        response = result.get('response', '')
+        
+        # Try to parse JSON response
+        import json
+        try:
+            start_idx = response.find('{')
+            end_idx = response.rfind('}') + 1
+            if start_idx != -1 and end_idx != 0:
+                json_str = response[start_idx:end_idx]
+                eval_result = json.loads(json_str)
+                return eval_result
+        except:
+            pass
+        
+        # Fallback evaluation
+        return {
+            'correct': False,
+            'score': 0.0,
+            'explanation': 'Could not evaluate answer automatically',
+            'feedback': 'Please review with your teacher',
+            'canonical_answer': question_data['correct_answer']
+        }
+        
+    except Exception as e:
+        print(f"❌ Answer evaluation error: {e}")
+        return {'correct': False, 'explanation': f'Evaluation error: {e}'}
+
+
+def _make_hint(question_data, attempt_num):
+    """Generate a hint for the current question"""
+    try:
+        global rag_processor
+        if not rag_processor:
+            return "Hint system unavailable. Try reviewing the course materials."
+        
+        hint_level = "gentle" if attempt_num == 1 else "moderate" if attempt_num == 2 else "strong"
+        
+        prompt = f"""Generate a {hint_level} hint for this exam question:
+
+Question: {question_data['question_text']}
+Correct Answer: {question_data['correct_answer']}
+Attempt Number: {attempt_num}/3
+
+Provide a helpful hint that guides the student toward the correct answer without giving it away completely.
+The hint should be appropriate for attempt #{attempt_num}.
+
+Return just the hint text, no JSON formatting needed."""
+        
+        result = rag_processor.query_with_rag(prompt, user_id=None)
+        hint_text = result.get('response', '').strip()
+        
+        return hint_text or f"💡 Hint {attempt_num}: Review the key concepts related to this topic in your course materials."
+        
+    except Exception as e:
+        print(f"❌ Hint generation error: {e}")
+        return f"💡 Hint {attempt_num}: Consider the main concepts covered in class for this topic."
+
+
+def _make_reveal(question_data):
+    """Generate explanation when revealing the correct answer"""
+    try:
+        global rag_processor
+        if not rag_processor:
+            return f"The correct answer is: {question_data['correct_answer']}\n\n{question_data.get('explanation', 'No explanation available.')}"
+        
+        prompt = f"""Provide a clear explanation for this exam question and its correct answer:
+
+Question: {question_data['question_text']}
+Correct Answer: {question_data['correct_answer']}
+
+Give a comprehensive explanation of:
+1. Why this answer is correct
+2. Key concepts involved
+3. How to approach similar questions
+
+Make it educational and helpful for the student."""
+        
+        result = rag_processor.query_with_rag(prompt, user_id=None)
+        explanation = result.get('response', '').strip()
+        
+        if explanation:
+            return f"📚 **Correct Answer:** {question_data['correct_answer']}\n\n**Explanation:**\n{explanation}"
+        else:
+            return f"📚 **Correct Answer:** {question_data['correct_answer']}\n\n{question_data.get('explanation', 'This is the correct answer based on the course materials.')}"
+        
+    except Exception as e:
+        print(f"❌ Explanation generation error: {e}")
+        return f"📚 **Correct Answer:** {question_data['correct_answer']}\n\n{question_data.get('explanation', 'This is the correct answer.')}"
+
+
+def _handle_exam_completion(session, questions_data):
+    """Handle exam completion and generate final results"""
+    try:
+        # Get all exam attempts for this session
+        attempts = ExamAnswerAttempt.objects.filter(test_session=session).order_by('question_number', 'attempt_number')
+        
+        total_questions = len(questions_data)
+        correct_count = 0
+        
+        # Count correct answers (only best attempt per question)
+        for q_num in range(1, total_questions + 1):
+            question_attempts = attempts.filter(question_number=q_num)
+            if question_attempts.filter(is_correct=True).exists():
+                correct_count += 1
+        
+        # Calculate score
+        score_percentage = (correct_count / total_questions) * 100 if total_questions > 0 else 0
+        
+        # Generate performance message
+        if score_percentage >= 90:
+            performance_msg = "🌟 Excellent work! Outstanding performance!"
+        elif score_percentage >= 80:
+            performance_msg = "👏 Great job! You did very well!"
+        elif score_percentage >= 70:
+            performance_msg = "📚 Good work! You have a solid understanding!"
+        elif score_percentage >= 60:
+            performance_msg = "💪 Not bad! Keep studying to improve further!"
+        else:
+            performance_msg = "📖 Keep practicing! There's room for improvement!"
+        
+        # Calculate time spent
+        time_spent = "N/A"
+        if session.created_at and session.updated_at:
+            duration = session.updated_at - session.created_at
+            minutes = int(duration.total_seconds() // 60)
+            seconds = int(duration.total_seconds() % 60)
+            time_spent = f"{minutes}:{seconds:02d}"
+        
+        completion_message = f"""🎯 **Exam Completed!**
 
 **Final Results:**
-- Questions Answered: {next_index + 1}
-- Time Elapsed: {minutes_elapsed}:{seconds_elapsed:02d}
+- Questions: {total_questions}
+- Correct: {correct_count}
+- Score: {score_percentage:.1f}%
+- Time: {time_spent}
 
-Your exam has been completed and submitted."""
-                            
-                            ChatInteraction.objects.create(
-                                student=user,
-                                question=f"[EXAM TIMEOUT] {student_answer}",
-                                answer=timeout_message,
-                                topic="Exam Timeout",
-                                notes=json.dumps({
-                                    "exam_mode": True,
-                                    "exam_timeout": True,
-                                    "time_elapsed": f"{minutes_elapsed}:{seconds_elapsed:02d}",
-                                    "test_session_id": session.id
-                                })
-                            )
-                            
-                            return Response({
-                                'success': True,
-                                'exam_complete': True,
-                                'exam_timeout': True,
-                                'chatbot_message': timeout_message,
-                                'final_results': {
-                                    'questions_answered': next_index + 1,
-                                    'total_questions': total_questions,
-                                    'time_elapsed': f"{minutes_elapsed}:{seconds_elapsed:02d}",
-                                    'reason': 'timeout'
-                                }
-                            })
-                        else:
-                            time_info = f"\n⏱️ Time elapsed: {minutes_elapsed}:{seconds_elapsed:02d}"
-                    else:
-                        time_info = f"\n⏱️ Time elapsed: {minutes_elapsed}:{seconds_elapsed:02d}"
-                except Exception as e:
-                    print(f"Time calculation error: {e}")
-            
-            # Check per-question time limit
-            per_question_warning = ""
-            if exam and exam.per_question_time_seconds:
-                # This would require tracking start time per question
-                # For now, we'll just show the limit
-                per_question_warning = f"\n⏳ Time per question: {exam.per_question_time_seconds} seconds"
-            
-            response_message = f"""{feedback_emoji} **Answer recorded for Question {current_index + 1}**
+{performance_msg}
 
-**Question {next_index + 1} of {total_questions}:**
-
-{question_display}
-
-Please provide your answer.{time_info}{per_question_warning}"""
-            
-            # Save interaction
-            ChatInteraction.objects.create(
-                student=user,
-                question=f"[EXAM ANSWER] {student_answer}",
-                answer=response_message,
-                topic="Exam Progress",
-                notes=json.dumps({
-                    "exam_mode": True,
-                    "question_id": next_question.id,
-                    "question_number": next_index + 1,
-                    "total_questions": total_questions,
-                    "answer_was_correct": is_correct,
-                    "test_session_id": session.id
-                })
-            )
-            
-            return Response({
-                'success': True,
-                'exam_complete': False,
-                'chatbot_message': response_message,
-                'progress': {
-                    'current_question': next_index + 1,
-                    'total_questions': total_questions,
-                    'percentage': ((next_index + 1) / total_questions) * 100
-                },
-                'next_question': {
-                    'id': next_question.id,
-                    'question_number': next_index + 1,
-                    'question_text': question_text,
-                    'question_type': next_question.question_type,
-                    'has_options': len(options) > 0,
-                    'options': options
-                }
-            })
-    
-    except TestSession.DoesNotExist:
-        return Response({'error': 'Test session not found'}, status=404)
-    except QuestionBank.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=404)
+Your results have been saved. Great work on completing the exam!"""
+        
+        return {
+            'message': completion_message,
+            'total_questions': total_questions,
+            'correct_answers': correct_count,
+            'score_percentage': score_percentage,
+            'time_spent': time_spent
+        }
+        
     except Exception as e:
-        print(f"Error in exam chat interaction: {e}")
-        return Response({'error': f'Exam error: {str(e)}'}, status=500)
+        print(f"❌ Exam completion error: {e}")
+        return {
+            'message': "Exam completed with errors. Please contact your teacher.",
+            'total_questions': 0,
+            'correct_answers': 0,
+            'score_percentage': 0,
+            'time_spent': "N/A"
+        }
+
+
+class LessonViewSet(viewsets.ModelViewSet):
+    queryset = Lesson.objects.all()
+    serializer_class = LessonSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
 
 # Main Views
 class UserRegistrationView(generics.CreateAPIView):
@@ -3516,6 +3520,603 @@ def get_exam_results(request, test_session_id):
     except Exception as e:
         print(f"Error getting exam results: {e}")
         return Response({'error': str(e)}, status=500)
+
+# ===================================================================
+# 🎯 INTERACTIVE EXAM LEARNING WITH OLAMA INTEGRATION
+# ===================================================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_interactive_exam_answer(request):
+    """
+    🎯 Improved Interactive Learning Flow with OLAMA Integration
+    
+    Flow:
+    1. Student submits answer
+    2. Check if answer is correct
+    3. If correct: Store answer, move to next question
+    4. If incorrect: 
+       - Track attempt count
+       - If attempts < MAX_ATTEMPTS: Generate OLAMA hint
+       - If attempts >= MAX_ATTEMPTS: Reveal answer, move to next
+    """
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can submit exam answers'}, status=403)
+    
+    # Configuration
+    MAX_ATTEMPTS = 3  # Allow 3 attempts per question
+    
+    try:
+        from .serializers import InteractiveExamAnswerSerializer, InteractiveExamResponseSerializer
+        import json
+        
+        # Validate and process the submission
+        serializer = InteractiveExamAnswerSerializer(data=request.data, context={'request': request})
+        
+        if not serializer.is_valid():
+            return Response({
+                'status': 'error',
+                'errors': serializer.errors
+            }, status=400)
+        
+        validated_data = serializer.validated_data
+        exam_session = validated_data['exam_session_obj']
+        question = validated_data['question_obj']
+        student = validated_data['student']
+        answer_text = validated_data['answer_text']
+        time_taken = validated_data.get('time_taken_seconds')
+        
+        # Get current attempt count for this student/question
+        existing_attempts = ExamAnswerAttempt.objects.filter(
+            exam_session=exam_session,
+            student=student,
+            question=question
+        ).count()
+        
+        attempt_number = existing_attempts + 1
+        
+        # Evaluate answer correctness
+        is_correct = evaluate_answer_correctness(question, answer_text)
+        
+        # Create the attempt record
+        attempt = ExamAnswerAttempt.objects.create(
+            exam_session=exam_session,
+            student=student,
+            question=question,
+            attempt_number=attempt_number,
+            answer_text=answer_text,
+            is_correct=is_correct,
+            time_taken_seconds=time_taken,
+            olama_context=json.dumps({
+                'question_text': question.question_text,
+                'correct_answer': question.correct_answer,
+                'attempt_number': attempt_number,
+                'student_answer': answer_text
+            })
+        )
+        
+        if is_correct:
+            # ✅ CORRECT ANSWER: Store final answer and move to next question
+            
+            # Store in main StudentAnswer table
+            StudentAnswer.objects.create(
+                exam_session=exam_session,
+                question=question,
+                student=student,
+                answer_text=answer_text,
+                is_correct=True,
+                time_taken_seconds=time_taken,
+                interaction_log=json.dumps({
+                    'attempt_count': attempt_number,
+                    'interactive_mode': True,
+                    'olama_hints_used': attempt_number - 1
+                })
+            )
+            
+            # Get next question
+            next_question_data = get_next_exam_question(exam_session, student)
+            
+            if next_question_data:
+                response_data = {
+                    'status': 'correct',
+                    'message': f'Correct! Well done. Moving to the next question.',
+                    'attempt_number': attempt_number,
+                    'next_question': next_question_data,
+                    'progress': get_exam_progress_data(exam_session, student)
+                }
+            else:
+                # Exam completed
+                final_score = calculate_final_exam_score(exam_session, student)
+                response_data = {
+                    'status': 'completed',
+                    'message': 'Congratulations! You have completed the exam.',
+                    'exam_completed': True,
+                    'final_score': final_score,
+                    'progress': get_exam_progress_data(exam_session, student)
+                }
+            
+            return Response(response_data)
+        
+        else:
+            # ❌ INCORRECT ANSWER: Check attempt count and decide next action
+            
+            if attempt_number < MAX_ATTEMPTS:
+                # Generate OLAMA hint
+                hint = generate_olama_hint(question, answer_text, attempt_number)
+                
+                # Store hint in attempt record
+                attempt.hint_provided = hint
+                attempt.save()
+                
+                return Response({
+                    'status': 'hint',
+                    'message': f'Not quite right. Here\'s a hint to help you:',
+                    'hint': hint,
+                    'attempt_number': attempt_number,
+                    'max_attempts': MAX_ATTEMPTS,
+                    'attempts_remaining': MAX_ATTEMPTS - attempt_number
+                })
+            
+            else:
+                # Max attempts reached - reveal answer and move on
+                
+                # Store final attempt in main StudentAnswer table
+                StudentAnswer.objects.create(
+                    exam_session=exam_session,
+                    question=question,
+                    student=student,
+                    answer_text=answer_text,
+                    is_correct=False,
+                    time_taken_seconds=time_taken,
+                    interaction_log=json.dumps({
+                        'attempt_count': attempt_number,
+                        'interactive_mode': True,
+                        'max_attempts_reached': True,
+                        'olama_hints_used': attempt_number - 1
+                    })
+                )
+                
+                # Get next question
+                next_question_data = get_next_exam_question(exam_session, student)
+                
+                if next_question_data:
+                    response_data = {
+                        'status': 'reveal',
+                        'message': f'Maximum attempts reached. The correct answer was: {question.correct_answer}',
+                        'correct_answer': question.correct_answer,
+                        'attempt_number': attempt_number,
+                        'next_question': next_question_data,
+                        'progress': get_exam_progress_data(exam_session, student)
+                    }
+                else:
+                    # Exam completed
+                    final_score = calculate_final_exam_score(exam_session, student)
+                    response_data = {
+                        'status': 'completed',
+                        'message': f'Exam completed! The correct answer to the last question was: {question.correct_answer}',
+                        'correct_answer': question.correct_answer,
+                        'exam_completed': True,
+                        'final_score': final_score,
+                        'progress': get_exam_progress_data(exam_session, student)
+                    }
+                
+                return Response(response_data)
+    
+    except Exception as e:
+        print(f"Error in interactive exam answer submission: {e}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to process answer: {str(e)}'
+        }, status=500)
+
+
+def evaluate_answer_correctness(question, answer_text):
+    """Evaluate if the student's answer is correct"""
+    answer_text = answer_text.strip().upper()
+    correct_answer = question.correct_answer.strip().upper()
+    
+    # For multiple choice questions
+    if question.question_type == 'multiple_choice':
+        # Allow both letter answers (A, B, C, D) and full text matches
+        if len(answer_text) == 1 and answer_text in ['A', 'B', 'C', 'D']:
+            return answer_text == correct_answer
+        else:
+            # Check if answer matches any option
+            options = {
+                'A': question.option_a,
+                'B': question.option_b,
+                'C': question.option_c,
+                'D': question.option_d
+            }
+            for letter, option_text in options.items():
+                if option_text and answer_text in option_text.upper():
+                    return letter == correct_answer
+            return False
+    else:
+        # For other question types, do direct comparison
+        return answer_text == correct_answer
+
+
+def generate_olama_hint(question, student_answer, attempt_number):
+    """Generate contextual hint using OLAMA"""
+    try:
+        hint_prompt = f"""You are an educational tutor helping a student who gave an incorrect answer. 
+
+QUESTION: {question.question_text}
+CORRECT ANSWER: {question.correct_answer}
+STUDENT'S ANSWER: {student_answer}
+ATTEMPT NUMBER: {attempt_number}
+
+Generate a helpful hint that guides the student toward the correct answer without revealing it directly. The hint should:
+
+1. Be encouraging and supportive
+2. Point out what might be wrong with their approach
+3. Give a clue about the correct thinking process
+4. Be appropriate for attempt #{attempt_number} (more specific hints for later attempts)
+5. NOT reveal the correct answer directly
+
+Respond with only the hint text, no extra formatting."""
+
+        # Use the existing RAG processor to get OLAMA response
+        global rag_processor
+        if rag_processor:
+            hint = rag_processor.query_documents(hint_prompt, limit=1)
+            if hint and len(hint) > 10:  # Basic validation
+                return hint
+        
+        # Fallback to simple response if OLAMA is not available
+        return get_simple_ollama_response(hint_prompt)
+        
+    except Exception as e:
+        print(f"Error generating OLAMA hint: {e}")
+        # Fallback hints based on attempt number
+        fallback_hints = {
+            1: "Think carefully about the question. What key concept is being tested here?",
+            2: "Consider reviewing the fundamentals related to this topic. What approach would work best?",
+            3: "Break down the problem step by step. What's the first thing you need to identify?"
+        }
+        return fallback_hints.get(attempt_number, "Take your time and think through this systematically.")
+
+
+def get_next_exam_question(exam_session, student):
+    """Get the next unanswered question in the exam session"""
+    # Get questions already answered by this student
+    answered_question_ids = StudentAnswer.objects.filter(
+        exam_session=exam_session,
+        student=student
+    ).values_list('question_id', flat=True)
+    
+    # Get the next question in order
+    next_session_question = exam_session.session_questions.exclude(
+        question_id__in=answered_question_ids
+    ).order_by('order_index').first()
+    
+    if next_session_question:
+        question = next_session_question.question
+        question_data = {
+            'id': question.id,
+            'question_text': question.question_text,
+            'question_type': question.question_type,
+            'order_index': next_session_question.order_index
+        }
+        
+        # Add options for multiple choice questions
+        if question.question_type == 'multiple_choice':
+            question_data.update({
+                'option_a': question.option_a,
+                'option_b': question.option_b,
+                'option_c': question.option_c,
+                'option_d': question.option_d
+            })
+        
+        return question_data
+    
+    return None
+
+
+def get_exam_progress_data(exam_session, student):
+    """Get current progress data for the exam session"""
+    total_questions = exam_session.session_questions.count()
+    answered_questions = StudentAnswer.objects.filter(
+        exam_session=exam_session,
+        student=student
+    ).count()
+    
+    correct_answers = StudentAnswer.objects.filter(
+        exam_session=exam_session,
+        student=student,
+        is_correct=True
+    ).count()
+    
+    return {
+        'total_questions': total_questions,
+        'answered_questions': answered_questions,
+        'correct_answers': correct_answers,
+        'progress_percentage': round((answered_questions / total_questions) * 100, 1) if total_questions > 0 else 0,
+        'accuracy_percentage': round((correct_answers / answered_questions) * 100, 1) if answered_questions > 0 else 0
+    }
+
+
+def calculate_final_exam_score(exam_session, student):
+    """Calculate final score for completed exam"""
+    total_questions = exam_session.session_questions.count()
+    correct_answers = StudentAnswer.objects.filter(
+        exam_session=exam_session,
+        student=student,
+        is_correct=True
+    ).count()
+    
+    total_attempts = ExamAnswerAttempt.objects.filter(
+        exam_session=exam_session,
+        student=student
+    ).count()
+    
+    return {
+        'total_questions': total_questions,
+        'correct_answers': correct_answers,
+        'score_percentage': round((correct_answers / total_questions) * 100, 1) if total_questions > 0 else 0,
+        'total_attempts': total_attempts,
+        'efficiency_score': round((correct_answers / total_attempts) * 100, 1) if total_attempts > 0 else 0
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_interactive_exam_progress(request, exam_session_id):
+    """Get current progress of an interactive exam session"""
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can check exam progress'}, status=403)
+    
+    try:
+        exam_session = ExamSession.objects.get(id=exam_session_id)
+        progress_data = get_exam_progress_data(exam_session, request.user)
+        
+        # Get current question if not completed
+        if progress_data['answered_questions'] < progress_data['total_questions']:
+            next_question = get_next_exam_question(exam_session, request.user)
+            progress_data['current_question'] = next_question
+        
+        # Get attempt history for current question if applicable
+        if progress_data.get('current_question'):
+            current_question_id = progress_data['current_question']['id']
+            attempts = ExamAnswerAttempt.objects.filter(
+                exam_session=exam_session,
+                student=request.user,
+                question_id=current_question_id
+            ).order_by('attempt_number')
+            
+            progress_data['current_question_attempts'] = [
+                {
+                    'attempt_number': attempt.attempt_number,
+                    'answer_text': attempt.answer_text,
+                    'is_correct': attempt.is_correct,
+                    'hint_provided': attempt.hint_provided,
+                    'submitted_at': attempt.submitted_at.isoformat()
+                }
+                for attempt in attempts
+            ]
+        
+        return Response({
+            'status': 'success',
+            'progress': progress_data
+        })
+        
+    except ExamSession.DoesNotExist:
+        return Response({
+            'status': 'error',
+            'message': 'Exam session not found'
+        }, status=404)
+    except Exception as e:
+        print(f"Error getting interactive exam progress: {e}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to get progress: {str(e)}'
+        }, status=500)
+
+
+# ===================================================================
+# 🎯 TASK 3.2: COLLECT AND STORE ANSWERS - NEW API ENDPOINT
+# ===================================================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_exam_answer(request):
+    """
+    🎯 Task 3.2: Submit answers during an active exam session
+    
+    For each student reply during an active exam session:
+    - Save the response in the database
+    - Validate question belongs to current exam session
+    - Prevent duplicate answers
+    - Return next question or completion status
+    """
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can submit exam answers'}, status=403)
+    
+    try:
+        from .serializers import ExamAnswerSubmissionSerializer, ExamAnswerResponseSerializer
+        
+        # Validate and save the answer
+        serializer = ExamAnswerSubmissionSerializer(data=request.data, context={'request': request})
+        
+        if not serializer.is_valid():
+            return Response({
+                'status': 'error',
+                'errors': serializer.errors
+            }, status=400)
+        
+        # Save the answer
+        answer = serializer.save()
+        
+        # Get the exam session and check if exam is complete
+        exam_session = ExamSession.objects.get(id=request.data['exam_session_id'])
+        
+        # Count total questions and answered questions for this student in this exam session
+        total_session_questions = exam_session.session_questions.count()
+        answered_questions = StudentAnswer.objects.filter(
+            exam_session=exam_session,
+            student=request.user
+        ).count()
+        
+        # Check if exam is completed
+        if answered_questions >= total_session_questions:
+            # Mark exam as completed (you might need to track this in ExamConfig or another model)
+            return Response({
+                'status': 'completed',
+                'message': 'Exam completed successfully',
+                'total_questions': total_session_questions,
+                'answered_questions': answered_questions,
+                'final_score': {
+                    'correct_answers': StudentAnswer.objects.filter(
+                        exam_session=exam_session,
+                        student=request.user,
+                        is_correct=True
+                    ).count(),
+                    'total_questions': answered_questions
+                }
+            })
+        
+        # Get next question
+        answered_question_ids = StudentAnswer.objects.filter(
+            exam_session=exam_session,
+            student=request.user
+        ).values_list('question_id', flat=True)
+        
+        next_question = exam_session.session_questions.exclude(
+            question_id__in=answered_question_ids
+        ).order_by('order_index').first()
+        
+        if next_question:
+            # Format next question
+            question = next_question.question
+            next_question_data = {
+                'id': question.id,
+                'question_text': question.question_text,
+                'question_type': question.question_type,
+                'order_index': next_question.order_index
+            }
+            
+            # Add options for multiple choice questions
+            if question.question_type == 'multiple_choice':
+                next_question_data.update({
+                    'option_a': question.option_a,
+                    'option_b': question.option_b,
+                    'option_c': question.option_c,
+                    'option_d': question.option_d
+                })
+            
+            return Response({
+                'status': 'saved',
+                'message': 'Answer saved successfully',
+                'answered_questions': answered_questions,
+                'total_questions': total_session_questions,
+                'progress_percentage': round((answered_questions / total_session_questions) * 100, 1),
+                'next_question': next_question_data
+            })
+        else:
+            # No more questions, exam completed
+            return Response({
+                'status': 'completed',
+                'message': 'Exam completed successfully',
+                'total_questions': total_session_questions,
+                'answered_questions': answered_questions,
+                'final_score': {
+                    'correct_answers': StudentAnswer.objects.filter(
+                        exam_session=exam_session,
+                        student=request.user,
+                        is_correct=True
+                    ).count(),
+                    'total_questions': answered_questions
+                }
+            })
+        
+    except ExamSession.DoesNotExist:
+        return Response({
+            'status': 'error',
+            'message': 'Exam session not found'
+        }, status=404)
+    except Exception as e:
+        print(f"Error submitting exam answer: {e}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to submit answer: {str(e)}'
+        }, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_exam_progress(request, exam_session_id):
+    """
+    Get current progress of an exam session for a student
+    """
+    if request.user.role != 'student':
+        return Response({'error': 'Only students can check exam progress'}, status=403)
+    
+    try:
+        exam_session = ExamSession.objects.get(id=exam_session_id)
+        
+        # Check if student has access to this exam session
+        # This depends on your permission model - you might check if student is assigned
+        
+        total_questions = exam_session.session_questions.count()
+        answered_questions = StudentAnswer.objects.filter(
+            exam_session=exam_session,
+            student=request.user
+        ).count()
+        
+        # Get current question (next unanswered question)
+        answered_question_ids = StudentAnswer.objects.filter(
+            exam_session=exam_session,
+            student=request.user
+        ).values_list('question_id', flat=True)
+        
+        current_question = exam_session.session_questions.exclude(
+            question_id__in=answered_question_ids
+        ).order_by('order_index').first()
+        
+        progress_data = {
+            'exam_session_id': exam_session.id,
+            'total_questions': total_questions,
+            'answered_questions': answered_questions,
+            'progress_percentage': round((answered_questions / total_questions) * 100, 1) if total_questions > 0 else 0,
+            'is_completed': answered_questions >= total_questions
+        }
+        
+        if current_question and not progress_data['is_completed']:
+            question = current_question.question
+            progress_data['current_question'] = {
+                'id': question.id,
+                'question_text': question.question_text,
+                'question_type': question.question_type,
+                'order_index': current_question.order_index
+            }
+            
+            # Add options for multiple choice questions
+            if question.question_type == 'multiple_choice':
+                progress_data['current_question'].update({
+                    'option_a': question.option_a,
+                    'option_b': question.option_b,
+                    'option_c': question.option_c,
+                    'option_d': question.option_d
+                })
+        
+        return Response({
+            'status': 'success',
+            'progress': progress_data
+        })
+        
+    except ExamSession.DoesNotExist:
+        return Response({
+            'status': 'error',
+            'message': 'Exam session not found'
+        }, status=404)
+    except Exception as e:
+        print(f"Error getting exam progress: {e}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to get progress: {str(e)}'
+        }, status=500)
+
 
 # ===================================================================
 # 🎯 PHASE 4: ANALYSIS AND TEACHER DASHBOARD

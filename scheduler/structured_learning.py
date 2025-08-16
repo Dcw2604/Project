@@ -107,8 +107,21 @@ class StructuredLearningManager:
     
     def process_student_answer(self, session, student_answer):
         """Process student's answer and provide feedback"""
+        print(f"\n📚 Processing answer for session {session.id}: '{student_answer}'")
+        print(f"   Topic: {session.topic}, Question Index: {session.current_question_index}")
+        
         questions = self.question_banks.get(session.topic, [])
+        if not questions:
+            print(f"❌ No questions found for topic: {session.topic}")
+            return {"is_correct": False, "feedback": "No questions available for this topic"}
+            
+        if session.current_question_index >= len(questions):
+            print(f"❌ Question index out of bounds: {session.current_question_index} >= {len(questions)}")
+            return {"is_correct": False, "feedback": "Session completed"}
+            
         current_q = questions[session.current_question_index]
+        print(f"   Current Question: {current_q['question']}")
+        print(f"   Expected Patterns: {current_q['correct_answer_patterns']}")
         
         # Check if answer is correct
         is_correct = self._check_answer_correctness(student_answer, current_q)
@@ -132,12 +145,15 @@ class StructuredLearningManager:
         if is_correct:
             session.correct_answers += 1
             session.current_question_index += 1
+            print(f"✅ Correct answer! Moving to question {session.current_question_index + 1}")
+        else:
+            print(f"❌ Incorrect answer, staying on question {session.current_question_index + 1}")
             
         # Update understanding level
         session.understanding_level = int((session.correct_answers / session.total_attempts) * 100)
         session.save()
         
-        return {
+        result = {
             "is_correct": is_correct,
             "feedback": ai_feedback,
             "next_question": self.get_current_question(session) if is_correct else None,
@@ -147,20 +163,29 @@ class StructuredLearningManager:
                 "understanding": session.understanding_level
             }
         }
+        
+        print(f"📊 Result: {result}")
+        return result
     
     def _check_answer_correctness(self, student_answer, question_data):
         """Check if student answer matches expected patterns"""
         answer_lower = student_answer.lower().strip()
+        print(f"🔍 Checking answer: '{student_answer}' against patterns: {question_data['correct_answer_patterns']}")
         
         for pattern in question_data["correct_answer_patterns"]:
             if pattern.lower() in answer_lower:
+                print(f"✅ Answer matches pattern: '{pattern}'")
                 return True
         
+        print(f"❌ Answer does not match any expected patterns")
         return False
     
     def _generate_ai_feedback(self, student_answer, question_data, is_correct):
         """Generate AI-powered feedback for student response"""
+        print(f"🤖 Generating AI feedback for answer: '{student_answer}', is_correct: {is_correct}")
+        
         if not self.rag_processor.llm:
+            print("⚠️ No LLM available, using fallback feedback")
             return self._get_fallback_feedback(is_correct)
         
         try:
@@ -173,11 +198,13 @@ class StructuredLearningManager:
                 This was incorrect. Generate a helpful hint (max 20 words) to guide them toward the right answer.
                 Don't give the answer directly, just guide them."""
             
+            print(f"🤖 Sending prompt to Ollama: {prompt[:100]}...")
             feedback = self.rag_processor.llm.invoke(prompt)
+            print(f"✅ Ollama response received: {str(feedback)[:100]}...")
             return str(feedback).strip()[:150]  # Limit length
             
         except Exception as e:
-            print(f"AI feedback generation failed: {e}")
+            print(f"❌ AI feedback generation failed: {e}")
             return self._get_fallback_feedback(is_correct)
     
     def _get_fallback_feedback(self, is_correct):
