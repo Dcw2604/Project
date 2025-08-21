@@ -226,19 +226,68 @@ class TestSession(models.Model):
 
 # Individual answers for each question in a test session
 class StudentAnswer(models.Model):
-    test_session = models.ForeignKey(TestSession, on_delete=models.CASCADE, related_name='answers')
+    # Support both test sessions and exam sessions
+    test_session = models.ForeignKey(TestSession, on_delete=models.CASCADE, related_name='answers', 
+                                   null=True, blank=True)
+    exam_session = models.ForeignKey('ExamSession', on_delete=models.CASCADE, related_name='student_answers', 
+                                   null=True, blank=True)
+    
+    # Core fields
     question = models.ForeignKey(QuestionBank, on_delete=models.CASCADE)
-    student_answer = models.TextField()
-    is_correct = models.BooleanField()
+    student = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'student'},
+                               help_text="Student who provided this answer", null=True, blank=True)
+    answer_text = models.TextField(help_text="Student's answer text")
+    
+    # Answer evaluation
+    is_correct = models.BooleanField(default=False)
     time_taken_seconds = models.IntegerField(null=True, blank=True)
     
+    # Metadata and logs
+    timestamp = models.DateTimeField(auto_now_add=True, null=True, blank=True,
+                                   help_text="When the answer was submitted")
+    interaction_log = models.TextField(default='{}', blank=True,
+                                     help_text="JSON string of extra metadata from conversation/chat flow")
+    
+    # Legacy field for compatibility
+    student_answer = models.TextField(help_text="Legacy field - use answer_text instead", 
+                                    blank=True, null=True)
     answered_at = models.DateTimeField(auto_now_add=True)
     
-    def __str__(self):
-        return f"{self.test_session.student.username} - Q{self.question.id} - {'✓' if self.is_correct else '✗'}"
-    
     class Meta:
-        ordering = ['answered_at']
+        ordering = ['timestamp']
+        # Ensure student can't answer same question twice in same session
+        constraints = [
+            models.UniqueConstraint(
+                fields=['test_session', 'question', 'student'],
+                condition=models.Q(test_session__isnull=False),
+                name='unique_test_session_answer'
+            ),
+            models.UniqueConstraint(
+                fields=['exam_session', 'question', 'student'],
+                condition=models.Q(exam_session__isnull=False),
+                name='unique_exam_session_answer'
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(test_session__isnull=False, exam_session__isnull=True) |
+                    models.Q(test_session__isnull=True, exam_session__isnull=False)
+                ),
+                name='one_session_type_required'
+            )
+        ]
+    
+    def save(self, *args, **kwargs):
+        # Ensure backward compatibility
+        if not self.student_answer and self.answer_text:
+            self.student_answer = self.answer_text
+        elif not self.answer_text and self.student_answer:
+            self.answer_text = self.student_answer
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        session_type = "Test" if self.test_session else "Exam"
+        session_id = self.test_session_id if self.test_session else self.exam_session_id
+        return f"{self.student.username} - {session_type} {session_id} - Q{self.question.id} - {'✓' if self.is_correct else '✗'}"
 
 
 # =================
@@ -683,6 +732,37 @@ class ExamSessionQuestion(models.Model):
     
     def __str__(self):
         return f"Session {self.exam_session.id} - Q{self.order_index}: {self.question.question_text[:50]}..."
+
+
+class ExamAnswerAttempt(models.Model):
+    """
+    Track individual answer attempts during interactive exam sessions with OLAMA
+    Each row represents one attempt by a student at answering a specific question
+    """
+    exam_session = models.ForeignKey(ExamSession, on_delete=models.CASCADE, related_name='answer_attempts')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='exam_attempts', 
+                               limit_choices_to={'role': 'student'})
+    question = models.ForeignKey(QuestionBank, on_delete=models.CASCADE, related_name='answer_attempts')
+    
+    # Attempt tracking
+    attempt_number = models.IntegerField(help_text="Which attempt this is (1, 2, 3, etc.)")
+    answer_text = models.TextField(help_text="The student's answer for this attempt")
+    is_correct = models.BooleanField(default=False, help_text="Whether this attempt was correct")
+    
+    # OLAMA interaction data
+    hint_provided = models.TextField(blank=True, null=True, help_text="Hint provided by OLAMA after incorrect answer")
+    olama_context = models.TextField(default='{}', help_text="JSON context for OLAMA conversation")
+    
+    # Metadata
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    time_taken_seconds = models.IntegerField(null=True, blank=True, help_text="Time taken for this attempt")
+    
+    class Meta:
+        unique_together = ['exam_session', 'student', 'question', 'attempt_number']
+        ordering = ['submitted_at']
+    
+    def __str__(self):
+        return f"Attempt {self.attempt_number} by {self.student.username} - Q{self.question.id} - {'✓' if self.is_correct else '✗'}"
 
 
 # ====================

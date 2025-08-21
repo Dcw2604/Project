@@ -129,6 +129,83 @@ class ExamApiService {
       throw error;
     }
   }
+
+  // ===== INTERACTIVE LEARNING WITH OLLAMA =====
+  
+  // Start an interactive learning session (uses Ollama)
+  async startInteractiveLearning(topic = 'Linear Equations') {
+    try {
+      const response = await fetch(`${API_BASE_URL}/interactive/start/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ topic }),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error starting interactive learning:', error);
+      throw error;
+    }
+  }
+
+  // Submit answer to interactive learning session (uses Ollama for checking)
+  async submitInteractiveLearningAnswer(sessionId, message) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/interactive/chat/${sessionId}/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ message }),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error submitting interactive learning answer:', error);
+      throw error;
+    }
+  }
+
+  // Get interactive learning progress
+  async getInteractiveLearningProgress(sessionId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/interactive/progress/${sessionId}/`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error fetching interactive learning progress:', error);
+      throw error;
+    }
+  }
+
+  // End interactive learning session
+  async endInteractiveLearning(sessionId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/interactive/end/${sessionId}/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error ending interactive learning:', error);
+      throw error;
+    }
+  }
+
+  // ===== STRUCTURED LEARNING SYSTEM =====
+  
+  // Submit answer to structured learning (alternative approach)
+  async submitStructuredLearningAnswer(sessionId, answer) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/learning/answer/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ session_id: sessionId, answer }),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error submitting structured learning answer:', error);
+      throw error;
+    }
+  }
 }
 
 export const examApi = new ExamApiService();

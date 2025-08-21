@@ -22,7 +22,11 @@ from .views import (
     # TASK 2.2: Exam Config Views
     ExamConfigViewSet,
     # Document status tracking
-    document_status
+    document_status,
+    # TASK 3.2: Exam Answer Collection
+    submit_exam_answer, get_exam_progress,
+    # Interactive Exam Learning with OLAMA
+    submit_interactive_exam_answer, get_interactive_exam_progress
 )
 
 # Create a router and register our viewset with it
@@ -87,7 +91,7 @@ urlpatterns = [
     # 🧠 Interactive Learning & Socratic Tutoring System
     path('interactive/start/', start_interactive_learning_session, name='start_interactive_learning'),
     path('interactive/chat/<int:session_id>/', interactive_learning_chat, name='interactive_learning_chat'),
-    path('interactive/progress/<int:session_id>/', get_learning_session_progress, name='learning_session_progress'),
+    path('interactive/progress/<int:session_id>/', get_learning_progress, name='learning_session_progress'),  # Fixed: use structured learning progress
     path('interactive/end/<int:session_id>/', end_learning_session, name='end_learning_session'),
     path('interactive/exam_chat/<int:session_id>/', handle_exam_chat_interaction, name='exam_chat_interaction'),
     
@@ -108,6 +112,14 @@ urlpatterns = [
     path('exams/sessions/', create_exam_session, name='create_exam_session'),  # Original path
     path('exams/sessions/list/', list_exam_sessions, name='list_exam_sessions'),
     path('exams/sessions/<int:session_id>/', get_exam_session, name='get_exam_session'),
+    
+    # 🎯 TASK 3.2: Exam Answer Collection & Progression
+    path('student-answers/', submit_exam_answer, name='submit_exam_answer'),
+    path('exam-progress/<int:exam_session_id>/', get_exam_progress, name='get_exam_progress'),
+    
+    # 🧠 Interactive Exam Learning with OLAMA Integration
+    path('interactive-exam-answers/', submit_interactive_exam_answer, name='submit_interactive_exam_answer'),
+    path('interactive-exam-progress/<int:exam_session_id>/', get_interactive_exam_progress, name='get_interactive_exam_progress'),
     
     # Router endpoints (lessons)
     path('', include(router.urls)),

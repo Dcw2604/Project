@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Lesson, Document, QuestionBank, TestSession, StudentAnswer, ChatSession, ConversationMessage, ConversationInsight, LearningPath, Topic, ExamSession, ExamSessionTopic, ExamSessionQuestion, ExamConfig, ExamConfigQuestion
+from .models import Lesson, Document, QuestionBank, TestSession, StudentAnswer, ChatSession, ConversationMessage, ConversationInsight, LearningPath, Topic, ExamSession, ExamSessionTopic, ExamSessionQuestion, ExamConfig, ExamConfigQuestion, ExamAnswerAttempt
 
 from .models import User
 
@@ -139,6 +139,211 @@ class TestSessionCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSession
         fields = ['test_type', 'difficulty_level', 'subject', 'total_questions', 'time_limit_minutes']
+
+
+# =================
+# EXAM SESSION ANSWER SERIALIZERS FOR TASK 3.2
+# =================
+
+class ExamAnswerSubmissionSerializer(serializers.ModelSerializer):
+    """Serializer for submitting answers during an active exam session"""
+    
+    class Meta:
+        model = StudentAnswer
+        fields = ['question_id', 'exam_session_id', 'answer_text', 'interaction_log']
+        
+    question_id = serializers.IntegerField(write_only=True)
+    exam_session_id = serializers.IntegerField(write_only=True)
+    answer_text = serializers.CharField()
+    interaction_log = serializers.JSONField(required=False, default=dict)
+    
+    def validate(self, data):
+        """Validate the answer submission"""
+        import json
+        
+        user = self.context['request'].user
+        
+        # Ensure user is a student
+        if user.role != 'student':
+            raise serializers.ValidationError("Only students can submit exam answers")
+        
+        # Get question and exam session
+        try:
+            question = QuestionBank.objects.get(id=data['question_id'])
+        except QuestionBank.DoesNotExist:
+            raise serializers.ValidationError("Question not found")
+        
+        try:
+            exam_session = ExamSession.objects.get(id=data['exam_session_id'])
+        except ExamSession.DoesNotExist:
+            raise serializers.ValidationError("Exam session not found")
+        
+        # Check if question belongs to this exam session
+        if not exam_session.session_questions.filter(question=question).exists():
+            raise serializers.ValidationError("Question does not belong to this exam session")
+        
+        # Check for duplicate answers (prevent answering same question twice)
+        existing_answer = StudentAnswer.objects.filter(
+            exam_session=exam_session,
+            question=question,
+            student=user
+        ).first()
+        
+        if existing_answer:
+            raise serializers.ValidationError("Answer already submitted for this question in this exam session")
+        
+        # Convert interaction_log to JSON string for SQLite compatibility
+        if 'interaction_log' in data and isinstance(data['interaction_log'], dict):
+            data['interaction_log'] = json.dumps(data['interaction_log'])
+        
+        # Add validated objects to data
+        data['question_obj'] = question
+        data['exam_session_obj'] = exam_session
+        data['student'] = user
+        
+        return data
+    
+    def create(self, validated_data):
+        """Create the student answer"""
+        # Remove helper objects from validated_data
+        question = validated_data.pop('question_obj')
+        exam_session = validated_data.pop('exam_session_obj')
+        student = validated_data.pop('student')
+        
+        # Remove write-only fields
+        validated_data.pop('question_id')
+        validated_data.pop('exam_session_id')
+        
+        # Evaluate answer correctness
+        is_correct = self._evaluate_answer(question, validated_data['answer_text'])
+        
+        # Create the answer record
+        answer = StudentAnswer.objects.create(
+            exam_session=exam_session,
+            question=question,
+            student=student,
+            is_correct=is_correct,
+            **validated_data
+        )
+        
+        return answer
+    
+    def _evaluate_answer(self, question, answer_text):
+        """Evaluate if the answer is correct"""
+        answer_text = answer_text.strip().upper()
+        correct_answer = question.correct_answer.strip().upper()
+        
+        # For multiple choice questions
+        if question.question_type == 'multiple_choice':
+            # Allow both letter answers (A, B, C, D) and full text matches
+            if len(answer_text) == 1 and answer_text in ['A', 'B', 'C', 'D']:
+                return answer_text == correct_answer
+            else:
+                # Check if answer matches any option
+                options = {
+                    'A': question.option_a,
+                    'B': question.option_b,
+                    'C': question.option_c,
+                    'D': question.option_d
+                }
+                for letter, option_text in options.items():
+                    if option_text and answer_text in option_text.upper():
+                        return letter == correct_answer
+                return False
+        else:
+            # For other question types, do direct comparison
+            return answer_text == correct_answer
+
+
+class ExamAnswerResponseSerializer(serializers.ModelSerializer):
+    """Serializer for response after submitting an exam answer"""
+    question_text = serializers.CharField(source='question.question_text', read_only=True)
+    question_type = serializers.CharField(source='question.question_type', read_only=True)
+    
+    class Meta:
+        model = StudentAnswer
+        fields = ['id', 'question', 'question_text', 'question_type', 'answer_text', 
+                 'is_correct', 'timestamp', 'interaction_log']
+        read_only_fields = ['id', 'question', 'question_text', 'question_type', 
+                           'is_correct', 'timestamp']
+
+
+# =================
+# INTERACTIVE EXAM ANSWER SERIALIZERS WITH OLAMA INTEGRATION
+# =================
+
+class InteractiveExamAnswerSerializer(serializers.Serializer):
+    """Serializer for submitting answers during interactive exam sessions with OLAMA"""
+    exam_session_id = serializers.IntegerField()
+    question_id = serializers.IntegerField()
+    answer_text = serializers.CharField()
+    time_taken_seconds = serializers.IntegerField(required=False, allow_null=True)
+    
+    def validate(self, data):
+        """Validate the interactive exam answer submission"""
+        user = self.context['request'].user
+        
+        # Ensure user is a student
+        if user.role != 'student':
+            raise serializers.ValidationError("Only students can submit exam answers")
+        
+        # Get exam session and question
+        try:
+            from .models import ExamSession, QuestionBank
+            exam_session = ExamSession.objects.get(id=data['exam_session_id'])
+            question = QuestionBank.objects.get(id=data['question_id'])
+        except ExamSession.DoesNotExist:
+            raise serializers.ValidationError("Exam session not found")
+        except QuestionBank.DoesNotExist:
+            raise serializers.ValidationError("Question not found")
+        
+        # Check if question belongs to this exam session
+        if not exam_session.session_questions.filter(question=question).exists():
+            raise serializers.ValidationError("Question does not belong to this exam session")
+        
+        # Check if student has access to this exam session
+        # You might want to add access control logic here
+        
+        # Add validated objects to data
+        data['exam_session_obj'] = exam_session
+        data['question_obj'] = question
+        data['student'] = user
+        
+        return data
+
+
+class InteractiveExamResponseSerializer(serializers.Serializer):
+    """Serializer for responses from interactive exam system"""
+    status = serializers.ChoiceField(choices=['correct', 'hint', 'reveal', 'completed'])
+    message = serializers.CharField()
+    
+    # Fields for different response types
+    hint = serializers.CharField(required=False, allow_null=True)
+    correct_answer = serializers.CharField(required=False, allow_null=True)
+    attempt_number = serializers.IntegerField(required=False, allow_null=True)
+    max_attempts = serializers.IntegerField(required=False, allow_null=True)
+    
+    # Next question data (for correct answers or after max attempts)
+    next_question = serializers.DictField(required=False, allow_null=True)
+    
+    # Completion data
+    exam_completed = serializers.BooleanField(default=False)
+    final_score = serializers.DictField(required=False, allow_null=True)
+    
+    # Progress information
+    progress = serializers.DictField(required=False, allow_null=True)
+
+
+class ExamAnswerAttemptSerializer(serializers.ModelSerializer):
+    """Serializer for exam answer attempts"""
+    student_name = serializers.CharField(source='student.username', read_only=True)
+    question_text = serializers.CharField(source='question.question_text', read_only=True)
+    
+    class Meta:
+        model = ExamAnswerAttempt
+        fields = ['id', 'attempt_number', 'answer_text', 'is_correct', 'hint_provided',
+                 'submitted_at', 'time_taken_seconds', 'student_name', 'question_text']
+        read_only_fields = ['id', 'submitted_at', 'student_name', 'question_text']
 
 
 # =================
