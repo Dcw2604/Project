@@ -6,6 +6,132 @@ from typing import List, Dict, Any
 class MathDocumentProcessor:
     def __init__(self):
         self.model_name = "llama3.2"
+    
+    def extract_json_from_response(self, content: str) -> Dict[str, Any]:
+        """
+        Robust JSON extraction that handles code fences and other formatting
+        """
+        try:
+            # First, try direct JSON parsing
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+        
+        # Remove code fences and backticks
+        content = re.sub(r'```json\s*', '', content, flags=re.IGNORECASE)
+        content = re.sub(r'```\s*', '', content)
+        content = content.strip('`')
+        
+        # Try to find the most complete JSON-like content between braces
+        # This regex handles nested braces better
+        json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
+        json_matches = re.findall(json_pattern, content, re.DOTALL)
+        
+        for json_match in json_matches:
+            try:
+                parsed = json.loads(json_match)
+                # Prefer matches that have a 'questions' key
+                if 'questions' in parsed:
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+        
+        # If we found JSON objects but none with 'questions', return the first valid one
+        for json_match in json_matches:
+            try:
+                return json.loads(json_match)
+            except json.JSONDecodeError:
+                continue
+        
+        # Try to find array-like content
+        array_match = re.search(r'\[.*\]', content, re.DOTALL)
+        if array_match:
+            try:
+                array_data = json.loads(array_match.group())
+                return {"questions": array_data}
+            except json.JSONDecodeError:
+                pass
+        
+        # Try to extract individual question objects from prose
+        # Look for question patterns in the text
+        questions = self.extract_questions_from_prose(content)
+        if questions:
+            return {"questions": questions}
+        
+        # Last resort: return empty structure
+        print("DEBUG: All JSON extraction methods failed, returning empty structure")
+        return {"questions": []}
+    
+    def extract_questions_from_prose(self, content: str) -> List[Dict]:
+        """
+        Extract question data from prose text when JSON parsing fails completely
+        """
+        questions = []
+        
+        # Look for question patterns
+        # Pattern 1: "Question: ..." followed by options "A) ..." etc.
+        question_blocks = re.split(r'(?:Question\s*\d*[:\.]|Q\d+[:\.])', content, flags=re.IGNORECASE)
+        
+        for block in question_blocks[1:]:  # Skip first empty split
+            if len(block.strip()) < 10:
+                continue
+                
+            # Extract question text (first line or until options)
+            lines = block.strip().split('\n')
+            question_text = ""
+            options = {'A': '', 'B': '', 'C': '', 'D': ''}
+            correct_answer = 'A'
+            explanation = ""
+            
+            current_section = 'question'
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Check for option patterns
+                option_match = re.match(r'^([ABCD])\)\s*(.+)', line, re.IGNORECASE)
+                if option_match:
+                    letter = option_match.group(1).upper()
+                    text = option_match.group(2)
+                    options[letter] = text
+                    current_section = 'options'
+                    continue
+                
+                # Check for answer patterns
+                answer_match = re.match(r'(?:Answer|Correct)[:\s]*([ABCD])', line, re.IGNORECASE)
+                if answer_match:
+                    correct_answer = answer_match.group(1).upper()
+                    current_section = 'answer'
+                    continue
+                
+                # Check for explanation patterns
+                if re.match(r'(?:Explanation|Because|Solution)[:\s]', line, re.IGNORECASE):
+                    explanation = re.sub(r'(?:Explanation|Because|Solution)[:\s]*', '', line, flags=re.IGNORECASE)
+                    current_section = 'explanation'
+                    continue
+                
+                # Add to current section
+                if current_section == 'question' and not question_text:
+                    question_text = line
+                elif current_section == 'explanation':
+                    explanation += " " + line
+            
+            # Only add if we have minimum required data
+            if question_text and any(options.values()):
+                questions.append({
+                    'question_text': question_text,
+                    'option_a': options.get('A', 'Option A'),
+                    'option_b': options.get('B', 'Option B'),
+                    'option_c': options.get('C', 'Option C'),
+                    'option_d': options.get('D', 'Option D'),
+                    'correct_answer': correct_answer,
+                    'explanation': explanation or f"Explanation for: {question_text[:50]}..."
+                })
+        
+        print(f"DEBUG: Extracted {len(questions)} questions from prose")
+        return questions[:5]  # Limit to 5 questions as requested
         
     def process_math_document(self, text: str, document_id: str) -> Dict[str, Any]:
         """
@@ -85,16 +211,32 @@ class MathDocumentProcessor:
                 {'role': 'user', 'content': prompt}
             ])
             
-            # Extract JSON from response
+            # Extract JSON from response with enhanced tolerance
             content = response['message']['content']
+            print(f"DEBUG: Raw LLM response for level {level}: {content[:200]}...")
             
-            # Try to parse JSON response
-            try:
-                parsed_response = json.loads(content)
+            # First, try to extract the first {...} block using regex
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL)
+            
+            if json_match:
+                json_text = json_match.group()
+                print(f"DEBUG: Extracted JSON block: {json_text[:100]}...")
+                
+                try:
+                    parsed_response = json.loads(json_text)
+                    questions = parsed_response.get('questions', [])
+                    print(f"DEBUG: Successfully parsed {len(questions)} questions for level {level}")
+                    return questions
+                except json.JSONDecodeError as e:
+                    print(f"DEBUG: JSON parsing failed for level {level}: {e}")
+                    # Fallback to robust parsing method
+                    parsed_response = self.extract_json_from_response(content)
+                    return parsed_response.get('questions', [])
+            else:
+                print(f"DEBUG: No JSON block found in response for level {level}")
+                # Try the robust parsing method as fallback
+                parsed_response = self.extract_json_from_response(content)
                 return parsed_response.get('questions', [])
-            except json.JSONDecodeError:
-                # If JSON parsing fails, try to extract questions manually
-                return self.extract_questions_fallback(content, level)
                 
         except Exception as e:
             print(f"Error extracting level {level} questions: {e}")
@@ -218,3 +360,163 @@ class MathDocumentProcessor:
         # Remove special characters that might interfere
         text = re.sub(r'[^\w\s\.\,\!\?\+\-\=\(\)\[\]\{\}\^\*\/\\]', '', text)
         return text.strip()
+    
+    def orchestrate_document_processing(self, file_path: str, document_id: int, document_type: str = 'pdf') -> Dict[str, Any]:
+        """
+        Unified orchestration for complete document processing pipeline:
+        1. Extract full text → save to extracted_text/processed_content
+        2. Build RAG chunks → save to rag_chunks  
+        3. Generate questions → write to QuestionBank and bump questions_generated_count
+        """
+        from .models import Document, QuestionBank
+        import json
+        
+        try:
+            # Get the document
+            document = Document.objects.get(id=document_id)
+            
+            # Step 1: Extract full text based on document type
+            extracted_text = ""
+            metadata = {}
+            
+            if document_type == 'pdf':
+                text_result = self.extract_pdf_content(file_path)
+                extracted_text = text_result.get('text', '')
+                metadata = text_result.get('metadata', {})
+            elif document_type == 'image':
+                text_result = self.extract_image_content(file_path)
+                extracted_text = text_result.get('text', '')
+                metadata = text_result.get('metadata', {})
+            else:  # text files
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    extracted_text = f.read()
+                metadata = {"file_type": document_type}
+            
+            # Save extracted text to document
+            document.extracted_text = extracted_text or ""
+            document.processed_content = extracted_text or ""
+            document.metadata = json.dumps(metadata)
+            
+            # Step 2: Build RAG chunks and save
+            if extracted_text and len(extracted_text.strip()) > 100:
+                knowledge_chunks = self.prepare_rag_chunks(extracted_text)
+                document.rag_chunks = json.dumps(knowledge_chunks)
+                
+                # Step 3: Generate questions using the math processor
+                math_result = self.process_math_document(extracted_text, str(document_id))
+                
+                # Save questions to QuestionBank
+                total_questions_created = 0
+                for level in ['3', '4', '5']:
+                    level_questions = math_result.get(f'level_{level}_questions', [])
+                    for q_data in level_questions:
+                        if self.validate_question_data(q_data):
+                            question = QuestionBank.objects.create(
+                                document=document,
+                                question_text=q_data.get('question_text', ''),
+                                question_type='multiple_choice',
+                                difficulty_level=level,
+                                subject='math',
+                                option_a=q_data.get('option_a', ''),
+                                option_b=q_data.get('option_b', ''),
+                                option_c=q_data.get('option_c', ''),
+                                option_d=q_data.get('option_d', ''),
+                                correct_answer=q_data.get('correct_answer', 'A'),
+                                explanation=q_data.get('explanation', ''),
+                                is_approved=True,
+                                created_by_ai=True,
+                                is_generated=True
+                            )
+                            total_questions_created += 1
+                
+                # Update document question count
+                document.questions_generated_count = total_questions_created
+                document.processing_status = 'completed'
+            else:
+                # Text too short for question generation
+                document.rag_chunks = json.dumps([])
+                document.questions_generated_count = 0
+                document.processing_status = 'completed'
+            
+            document.save()
+            
+            return {
+                'success': True,
+                'questions_generated': document.questions_generated_count,
+                'text_length': len(extracted_text),
+                'chunks_created': len(json.loads(document.rag_chunks or '[]')),
+                'processing_status': document.processing_status
+            }
+            
+        except Exception as e:
+            print(f"Error in orchestrate_document_processing: {e}")
+            try:
+                document = Document.objects.get(id=document_id)
+                document.processing_status = 'failed'
+                document.save()
+            except:
+                pass
+            
+            return {
+                'success': False,
+                'error': str(e),
+                'questions_generated': 0
+            }
+    
+    def extract_pdf_content(self, file_path: str) -> Dict[str, Any]:
+        """Extract text from PDF files using pdfplumber"""
+        try:
+            import pdfplumber
+            
+            extracted_data = {
+                'text': '',
+                'metadata': {}
+            }
+            
+            with pdfplumber.open(file_path) as pdf:
+                # Extract metadata
+                extracted_data['metadata'] = {
+                    'total_pages': len(pdf.pages),
+                    'title': pdf.metadata.get('Title', ''),
+                    'author': pdf.metadata.get('Author', '')
+                }
+                
+                # Extract text from all pages
+                full_text = ""
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        full_text += f"\n{page_text}"
+                
+                extracted_data['text'] = full_text.strip()
+            
+            return extracted_data
+            
+        except Exception as e:
+            return {
+                'text': f"PDF extraction failed: {str(e)}",
+                'metadata': {}
+            }
+    
+    def extract_image_content(self, file_path: str) -> Dict[str, Any]:
+        """Extract text from image files (placeholder for OCR)"""
+        try:
+            # This is a placeholder - in production you'd use OCR
+            import os
+            return {
+                'text': f"Image file: {os.path.basename(file_path)} (OCR processing would go here)",
+                'metadata': {
+                    'file_name': os.path.basename(file_path),
+                    'file_type': 'image'
+                }
+            }
+        except Exception as e:
+            return {
+                'text': f"Image processing failed: {str(e)}",
+                'metadata': {}
+            }
+    
+    def validate_question_data(self, q_data: Dict[str, Any]) -> bool:
+        """Validate that question data has required fields"""
+        required_fields = ['question_text', 'option_a', 'option_b', 'option_c', 'option_d', 'correct_answer']
+        return all(field in q_data and q_data[field] for field in required_fields)
