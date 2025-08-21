@@ -20,7 +20,9 @@ from .views import (
     # TASK 2.1: Exam Session Views
     list_topics, create_exam_session, get_exam_session, list_exam_sessions,
     # TASK 2.2: Exam Config Views
-    ExamConfigViewSet
+    ExamConfigViewSet,
+    # Document status tracking
+    document_status
 )
 
 # Create a router and register our viewset with it
@@ -47,6 +49,7 @@ urlpatterns = [
     path('upload_document/', upload_document, name="upload_document"),
     path('documents/', list_documents, name="list_documents"),
     path('documents/<int:document_id>/', delete_document, name="delete_document"),
+    path('documents/<int:document_id>/status/', document_status, name="document_status"),  # Status endpoint
     path('rag_documents/', list_documents, name="rag_documents"),  # Alias for frontend compatibility
     
     # Question management endpoints

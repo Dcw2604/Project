@@ -48,7 +48,6 @@ import {
 // Import teacher components
 import ManageStudents from './ManageStudents';
 import ManageSchedule from './ManageSchedule';
-import ManageDocuments from './ManageDocuments';
 import ManageTests from './ManageTests';
 import CreateExamSession from './CreateExamSession';
 
@@ -130,7 +129,7 @@ const TeacherDashboard = () => {
   };
 
   const handleCreateExamSession = () => {
-    setActiveTab(5); // Switch to Exam Sessions tab
+    setActiveTab(4); // Switch to Exam Sessions tab
   };
 
   const handleExamSessionSuccess = () => {
@@ -371,7 +370,6 @@ const TeacherDashboard = () => {
           <Tab icon={<Dashboard />} label="Overview" />
           <Tab icon={<People />} label="Students" />
           <Tab icon={<CalendarMonth />} label="Schedule" />
-          <Tab icon={<Book />} label="Documents" />
           <Tab icon={<Assignment />} label="Tests" />
           <Tab icon={<Quiz />} label="Exam Sessions" />
         </Tabs>
@@ -382,9 +380,8 @@ const TeacherDashboard = () => {
         {activeTab === 0 && renderDashboardOverview()}
         {activeTab === 1 && <ManageStudents />}
         {activeTab === 2 && <ManageSchedule />}
-        {activeTab === 3 && <ManageDocuments />}
-        {activeTab === 4 && <ManageTests />}
-        {activeTab === 5 && (
+        {activeTab === 3 && <ManageTests />}
+        {activeTab === 4 && (
           <Box sx={{ p: 3 }}>
             <CreateExamSession 
               onSuccess={handleExamSessionSuccess} 

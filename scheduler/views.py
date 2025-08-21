@@ -26,11 +26,11 @@ from .models import (
 from .structured_learning import StructuredLearningManager
 # Temporarily disable imports to get server running
 try:
-    from .document_utils import document_processor, process_uploaded_document
+    from .document_processing import document_processor
+    print("✅ Document processor loaded from document_processing")
 except ImportError:
-    print("⚠️ Document utils not available")
+    print("⚠️ Document processing not available")
     document_processor = None
-    process_uploaded_document = None
 
 try:
     from sympy import sympify
@@ -586,6 +586,7 @@ def process_document_background(document_id, file_path, document_type):
     """
     import threading
     import time
+    import json
     
     def background_task():
         try:
@@ -594,65 +595,178 @@ def process_document_background(document_id, file_path, document_type):
             # Get the document
             document = Document.objects.get(id=document_id)
             
-            # Process complete document based on type
+            # 1) Extract text + metadata using DocumentProcessor
+            from .document_processing import DocumentProcessor
+            processor = DocumentProcessor()
+            extracted_text = ""
+            meta = {}
+            
+            print(f"BACKGROUND: Extracting text from {document_type} file...")
+            
             if document_type == 'pdf':
-                print("BACKGROUND: PDF processing temporarily disabled")
-                # TODO: Re-enable when pdfplumber is available
-                document.processed_text = "PDF processing temporarily unavailable"
+                pdf_res = processor.extract_pdf_content(file_path)  # returns {'text', 'pages', 'metadata', ...}
+                extracted_text = (pdf_res or {}).get('text', '') or ''
+                meta = (pdf_res or {}).get('metadata', {}) or {}
+                print(f"BACKGROUND: PDF extraction completed - {len(extracted_text)} characters")
+            elif document_type == 'image':
+                img_res = processor.process_image_content(file_path)   # returns {'text', 'metadata', ...}
+                extracted_text = (img_res or {}).get('text', '') or ''
+                meta = (img_res or {}).get('metadata', {}) or {}
+                print(f"BACKGROUND: Image extraction completed - {len(extracted_text)} characters")
+            else:
+                # plain text
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        extracted_text = f.read()
+                except UnicodeDecodeError:
+                    with open(file_path, 'r', encoding='latin-1') as f:
+                        extracted_text = f.read()
+                meta = {"file_type": document_type}
+                print(f"BACKGROUND: Text file extraction completed - {len(extracted_text)} characters")
+            
+            # 2) Save extraction to the document
+            document.extracted_text = extracted_text
+            document.processed_content = extracted_text
+            document.metadata = json.dumps(meta)
+            document.processing_status = 'processing'
+            document.save()
+            print(f"BACKGROUND: Text and metadata saved to document")
+            
+            # Check if we have enough text for question generation
+            if not extracted_text or len(extracted_text.strip()) < 100:
+                # Not enough text to generate questions
                 document.processing_status = 'completed'
                 document.save()
+                print(f"BACKGROUND: Not enough text to generate questions for doc {document_id} (only {len(extracted_text.strip())} chars)")
                 return
             
-            # For teachers: Generate questions after complete processing
-            if document.uploaded_by.role == 'teacher' and document.extracted_text:
-                print("BACKGROUND: Starting question generation")
-                
+                # 3) For teachers only: Generate & SAVE questions into QuestionBank
+            if document.uploaded_by.role == 'teacher':
+                print(f"BACKGROUND: Teacher document - generating questions...")
                 try:
-                    from .document_processing import DocumentProcessor
-                    doc_processor = DocumentProcessor()
+                    from django.db import transaction
+                    from .models import QuestionBank
+                    from .document_processing import DocumentProcessor, OllamaUnavailableError, InsufficientQuestionsError
+                    from django.utils import timezone
                     
-                    question_result = doc_processor.generate_questions_from_document(
+                    dp = DocumentProcessor()
+                    
+                    # Initialize progress tracking
+                    difficulty_levels = ['3', '4', '5']
+                    document.total_levels = len(difficulty_levels)
+                    document.processing_progress = json.dumps({level: {'status': 'pending', 'count': 0} for level in difficulty_levels})
+                    document.last_heartbeat = timezone.now()
+                    document.current_level_processing = None
+                    document.save(update_fields=['total_levels', 'processing_progress', 'last_heartbeat', 'current_level_processing'])
+                    
+                    # Emit initial heartbeat
+                    def emit_heartbeat(level=None, status='processing', count=0):
+                        document.refresh_from_db()
+                        document.last_heartbeat = timezone.now()
+                        if level:
+                            document.current_level_processing = level
+                            # Parse, update, and re-serialize progress
+                            try:
+                                progress = json.loads(document.processing_progress) if document.processing_progress else {}
+                            except json.JSONDecodeError:
+                                progress = {}
+                            progress[level] = {'status': status, 'count': count}
+                            document.processing_progress = json.dumps(progress)
+                        document.save(update_fields=['last_heartbeat', 'current_level_processing', 'processing_progress'])
+                        print(f"HEARTBEAT: Level {level} - {status} - {count} questions")
+                    
+                    print(f"BACKGROUND: Starting question generation with progress tracking...")
+                    
+                    # >>> REQUIRE LLM; surface error if unavailable <<<
+                    result = dp.generate_questions_from_document(
                         document_id=document.id,
-                        difficulty_levels=['3', '4', '5']
-                    )
-                    
-                    if question_result.get('success', False):
-                        questions_count = question_result.get('questions_generated', 0)
-                        document.questions_generated_count = questions_count
+                        difficulty_levels=difficulty_levels,
+                        # Dynamic target logic inside the generator
+                        # enforces minimum 10/level & uniqueness
+                        require_llm=True,
+                        # Pass heartbeat callback for progress updates
+                        progress_callback=emit_heartbeat
+                    )                    # SAFETY: after generation, recompute count from DB
+                    with transaction.atomic():
+                        total = QuestionBank.objects.filter(document_id=document.id).count()
+                        document.questions_generated_count = total
                         document.processing_status = 'completed'
-                        print(f"BACKGROUND: Generated {questions_count} questions successfully")
-                    else:
-                        print(f"BACKGROUND: Question generation failed: {question_result.get('error', 'Unknown error')}")
-                        document.processing_status = 'completed'  # Still completed for text extraction
+                        document.processing_error = ''
+                        document.current_level_processing = None
+                        # Mark all levels as completed in progress
+                        try:
+                            progress = json.loads(document.processing_progress) if document.processing_progress else {}
+                        except json.JSONDecodeError:
+                            progress = {}
+                        for level in difficulty_levels:
+                            level_count = QuestionBank.objects.filter(document_id=document.id, difficulty_level=level).count()
+                            progress[level] = {'status': 'completed', 'count': level_count}
+                        document.processing_progress = json.dumps(progress)
+                        document.last_heartbeat = timezone.now()
+                        document.save(update_fields=['questions_generated_count', 'processing_status', 'processing_error', 
+                                                   'current_level_processing', 'processing_progress', 'last_heartbeat', 'updated_at'])
+                    
+                    print(f"BACKGROUND: Completed. Saved {total} questions for doc {document.id}")
+                    print(f"  - Generation result: {result.get('success', False)}")
+                    print(f"  - Level breakdown: {result.get('breakdown', {})}")
+                    print(f"  - Document stats: {result.get('document_stats', {})}")
+                    print(f"  - Final progress: {document.processing_progress}")
                         
-                except Exception as question_error:
-                    print(f"BACKGROUND: Question generation error: {question_error}")
-                    document.processing_status = 'completed'
+                except OllamaUnavailableError as e:
+                    document.processing_status = 'failed'
+                    document.processing_error = 'OLLAMA_UNAVAILABLE'
+                    document.save(update_fields=['processing_status', 'processing_error', 'updated_at'])
+                    print(f"BACKGROUND: Ollama unavailable: {e}")
+                    return
+                
+                except InsufficientQuestionsError as e:
+                    document.processing_status = 'failed'
+                    document.processing_error = 'INSUFFICIENT_QUESTIONS'
+                    document.save(update_fields=['processing_status', 'processing_error', 'updated_at'])
+                    print(f"BACKGROUND: Insufficient questions generated: {e}")
+                    return
+                    
+                except Exception as e:
+                    document.processing_status = 'failed'
+                    document.processing_error = f"GENERATION_ERROR: {e}"
+                    document.save(update_fields=['processing_status', 'processing_error', 'updated_at'])
+                    import traceback
+                    print("BACKGROUND ERROR:\n", traceback.format_exc())
+                    return
             else:
+                print(f"BACKGROUND: Student document - skipping question generation")
+                document.questions_generated_count = 0
+                # 4) Mark completed for students
                 document.processing_status = 'completed'
+                document.save(update_fields=['questions_generated_count', 'processing_status', 'updated_at'])
             
-            # Save final state
-            document.save()
-            print(f"BACKGROUND: Document {document_id} processing completed")
+            print(f"BACKGROUND: Document {document_id} processing completed successfully")
+            print(f"  - Final status: {document.processing_status}")
+            print(f"  - Questions generated: {document.questions_generated_count}")
+            print(f"  - Text length: {len(document.extracted_text)} characters")
             
         except Exception as e:
-            print(f"BACKGROUND: Error processing document {document_id}: {e}")
+            print(f"BACKGROUND: Fatal error for document {document_id}: {e}")
+            import traceback
+            traceback.print_exc()
             try:
                 document = Document.objects.get(id=document_id)
                 document.processing_status = 'failed'
+                document.processing_error = str(e)
                 document.save()
-            except:
-                pass
+                print(f"BACKGROUND: Marked document {document_id} as failed")
+            except Exception as save_error:
+                print(f"BACKGROUND: Could not update document status: {save_error}")
     
-    # Start background thread with a small delay to ensure response is sent first
+    # Start background thread with a delay to ensure upload response returns fast
     def delayed_start():
-        time.sleep(1)  # 1 second delay to ensure response is sent
+        time.sleep(0.5)  # 0.5 second delay so upload response returns immediately
         background_task()
     
-    thread = threading.Thread(target=delayed_start)
-    thread.daemon = True
+    thread = threading.Thread(target=delayed_start, daemon=True)
     thread.start()
     print(f"DEBUG: Background processing thread started for document {document_id}")
+    print(f"DEBUG: Upload response will return immediately, processing continues in background")
 
 # Helper functions
 def get_simple_ollama_response(question: str) -> str:
@@ -971,7 +1085,7 @@ def handle_exam_chat_interaction(user, student_answer, test_session_id):
         
         if next_index >= total_questions:
             # Exam completed
-            session.session_complete = True
+            session.is_completed = True
             session.save()
             
             # Calculate comprehensive score and timing
@@ -1149,7 +1263,7 @@ Thank you for taking the exam. Your results have been submitted to your teacher.
                             time_info = f"\n⏰ **Time Warning:** {remaining_minutes} minutes remaining!"
                         elif remaining_minutes <= 0:
                             # Time's up - end exam
-                            session.session_complete = True
+                            session.is_completed = True
                             session.save()
                             
                             timeout_message = f"""⏰ **Time's Up!**
@@ -1497,7 +1611,60 @@ def chat_interaction(request):
             target_document = None
             
             if uploaded_file:
-                doc_result = process_uploaded_document(uploaded_file, user, uploaded_file.name)
+                # Process uploaded file directly using document_processor
+                try:
+                    import uuid
+                    from django.conf import settings
+                    
+                    # Create upload directory
+                    upload_dir = os.path.join(settings.BASE_DIR, 'media', 'documents')
+                    os.makedirs(upload_dir, exist_ok=True)
+                    
+                    # Generate unique filename and save file
+                    file_extension = uploaded_file.name.lower().split('.')[-1]
+                    unique_filename = f"{uuid.uuid4()}_{uploaded_file.name}"
+                    file_path = os.path.join(upload_dir, unique_filename)
+                    
+                    with open(file_path, 'wb+') as destination:
+                        for chunk in uploaded_file.chunks():
+                            destination.write(chunk)
+                    
+                    # Determine document type and extract text
+                    document_type = 'pdf' if file_extension == 'pdf' else 'image' if file_extension in ['jpg', 'jpeg', 'png'] else 'text'
+                    extracted_text = ""
+                    metadata = {}
+                    
+                    if document_type == 'pdf' and document_processor:
+                        pdf_result = document_processor.extract_pdf_content(file_path)
+                        extracted_text = pdf_result.get('text', '') if isinstance(pdf_result, dict) else str(pdf_result)
+                        metadata = pdf_result.get('metadata', {}) if isinstance(pdf_result, dict) else {}
+                    elif document_type == 'image' and document_processor:
+                        ocr_result = document_processor.extract_image_text(file_path)
+                        extracted_text = ocr_result.get('text', '') if isinstance(ocr_result, dict) else str(ocr_result)
+                        metadata = ocr_result.get('metadata', {}) if isinstance(ocr_result, dict) else {}
+                    else:
+                        # Text file processing
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as text_file:
+                                extracted_text = text_file.read()
+                        except UnicodeDecodeError:
+                            with open(file_path, 'r', encoding='latin-1') as text_file:
+                                extracted_text = text_file.read()
+                    
+                    # Create doc_result in expected format
+                    doc_result = {
+                        'success': True,
+                        'title': uploaded_file.name,
+                        'document_type': document_type,
+                        'file_path': file_path,
+                        'extraction_result': {
+                            'text': extracted_text,
+                            'metadata': metadata
+                        }
+                    }
+                except Exception as e:
+                    print(f"ERROR: File processing failed: {e}")
+                    doc_result = {'success': False, 'error': str(e)}
                 
                 if doc_result['success']:
                     # Save document to database
@@ -2119,9 +2286,9 @@ def upload_document(request):
         
         # Import required modules with error handling
         try:
-            from .document_processing import document_processor
             from django.conf import settings
             print("DEBUG: Successfully imported required modules")
+            # document_processor is already imported at top of file from document_utils
         except ImportError as import_error:
             print(f"ERROR: Import failed: {import_error}")
             return Response({'error': f'System modules not available: {str(import_error)}'}, status=500)
@@ -2171,8 +2338,17 @@ def upload_document(request):
         extracted_text = ""
         try:
             if document_type == 'pdf':
-                print("DEBUG: PDF processing temporarily disabled")
-                extracted_text = "PDF processing temporarily unavailable. Please install required dependencies."
+                print("DEBUG: Processing PDF document")
+                if document_processor:
+                    try:
+                        pdf_result = document_processor.extract_pdf_content(file_path)
+                        extracted_text = pdf_result.get('text', '') if isinstance(pdf_result, dict) else str(pdf_result)
+                        print(f"DEBUG: PDF extracted {len(extracted_text)} characters")
+                    except Exception as pdf_error:
+                        print(f"ERROR: PDF extraction failed: {pdf_error}")
+                        extracted_text = f"PDF processing failed: {str(pdf_error)}"
+                else:
+                    extracted_text = "PDF processing temporarily unavailable - document_processor not available"
                     
             elif document_type == 'image':
                 print("DEBUG: Processing image with OCR")
@@ -2219,10 +2395,29 @@ def upload_document(request):
                 print("DEBUG: Processing for teacher - generating questions")
                 print(f"DEBUG: Document {document.id} has extracted_text length: {len(document.extracted_text)}")
                 
+                # Import Ollama health check functions
+                from .document_processing import llm_is_up, OllamaUnavailableError
+                
+                # Check if Ollama is available before starting processing
+                if not llm_is_up("http://127.0.0.1:11434"):
+                    document.processing_status = 'failed'
+                    document.processing_error = 'OLLAMA_UNAVAILABLE'
+                    document.save()
+                    return Response(
+                        {
+                            "error": "Ollama connection failed",
+                            "detail": "Ollama is not reachable at http://127.0.0.1:11434",
+                            "code": "OLLAMA_UNAVAILABLE",
+                            "document_id": document.id
+                        },
+                        status=503
+                    )
+                
                 # Verify that the document actually has text before proceeding
                 if not document.extracted_text or len(document.extracted_text.strip()) < 100:
-                    print(f"ERROR: Document has insufficient text for question generation: {len(document.extracted_text)} chars")
+                    print(f"WARNING: Document has insufficient text for question generation: {len(document.extracted_text)} chars")
                     document.processing_status = 'completed'
+                    document.questions_generated_count = 0  # Explicitly set - no questions due to insufficient text
                     questions_generated = 0
                 else:
                     # For immediate response: set status to processing
@@ -2257,13 +2452,23 @@ def upload_document(request):
         
         # Return appropriate response based on user role
         if request.user.role == 'teacher':
-            # Check if background processing was started
-            is_processing = document.processing_status == 'processing' and questions_generated == 0
+            # Check if background processing was started - align with actual processing status
+            is_processing = document.processing_status == 'processing'
+            
+            # Create appropriate message based on processing status and text length
+            if is_processing:
+                message = 'Document uploaded successfully! Background processing in progress.'
+            else:
+                # Processing completed - check if it was due to insufficient text
+                if len(extracted_text.strip()) < 100:
+                    message = f'Document uploaded and processed. No questions generated due to insufficient text content ({len(extracted_text)} characters, minimum 100 required).'
+                else:
+                    message = 'Document uploaded and processing completed.'
             
             response_data = {
                 'success': True,
                 'document_id': document.id,
-                'message': 'Document uploaded successfully!' if is_processing else 'Document uploaded and processed for question generation!',
+                'message': message,
                 'background_processing_note': 'Complete document processing and question generation continues in background. Check back in a few minutes.' if is_processing else None,
                 'title': document.title,
                 'document_type': document.document_type,
@@ -3238,7 +3443,7 @@ def start_exam_chat(request, exam_id):
             student=request.user,
             exam=ex,
             test_type='exam',
-            session_complete=False
+            is_completed=False
         ).first()
         
         if existing_session:
@@ -3427,7 +3632,7 @@ def get_exam_results(request, test_session_id):
             test_type='exam'
         )
         
-        if not session.session_complete:
+        if not session.is_completed:
             return Response({'error': 'Exam session is not yet complete'}, status=400)
         
         # Get all answers for this session
@@ -4043,7 +4248,7 @@ def teacher_dashboard(request):
         # Recent exam sessions
         recent_sessions = TestSession.objects.filter(
             exam__created_by=request.user,
-            session_complete=True
+            is_completed=True
         ).select_related('student', 'exam').order_by('-created_at')[:10]
         
         # Overall statistics
@@ -4051,7 +4256,7 @@ def teacher_dashboard(request):
         total_sessions = TestSession.objects.filter(exam__created_by=request.user).count()
         completed_sessions = TestSession.objects.filter(
             exam__created_by=request.user, 
-            session_complete=True
+            is_completed=True
         ).count()
         
         # Performance overview
@@ -4065,7 +4270,7 @@ def teacher_dashboard(request):
         # Exam performance breakdown
         exam_performance = []
         for exam in teacher_exams:
-            exam_sessions = TestSession.objects.filter(exam=exam, session_complete=True)
+            exam_sessions = TestSession.objects.filter(exam=exam, is_completed=True)
             exam_answers = StudentAnswer.objects.filter(test_session__exam=exam)
             
             if exam_answers.exists():
@@ -4168,7 +4373,7 @@ def export_exam_results(request, exam_id):
         # Get all completed sessions for this exam
         sessions = TestSession.objects.filter(
             exam=exam, 
-            session_complete=True
+            is_completed=True
         ).select_related('student')
         
         if export_format == 'csv':
@@ -4293,7 +4498,7 @@ def analyze_student_performance(request, student_id):
         exam_sessions = TestSession.objects.filter(
             student=student,
             test_type='exam',
-            session_complete=True
+            is_completed=True
         ).select_related('exam')
         
         if not exam_sessions.exists():
@@ -4456,7 +4661,7 @@ def topic_level_analysis(request):
         # Base query for completed exam sessions
         sessions_query = TestSession.objects.filter(
             test_type='exam',
-            session_complete=True
+            is_completed=True
         )
         
         # Apply filters
@@ -4632,7 +4837,7 @@ def teacher_dashboard(request):
         # Get completed sessions for teacher's exams
         completed_sessions = TestSession.objects.filter(
             exam__in=teacher_exams,
-            session_complete=True
+            is_completed=True
         ).select_related('student', 'exam')
         
         total_attempts = completed_sessions.count()
@@ -7083,11 +7288,75 @@ class ExamConfigViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(instance)
             return Response(serializer.data)
         except Exception as e:
-            print(f"❌ Error retrieving exam config: {e}")
             return Response({
                 'error': str(e),
                 'message': 'Failed to retrieve exam configuration'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def document_status(request, document_id):
+    """
+    Get real-time processing status for a document including heartbeat and progress
+    """
+    try:
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        document = Document.objects.get(id=document_id, uploaded_by=request.user)
+        
+        # Calculate heartbeat age
+        heartbeat_age_seconds = None
+        if document.last_heartbeat:
+            heartbeat_age = timezone.now() - document.last_heartbeat
+            heartbeat_age_seconds = heartbeat_age.total_seconds()
+        
+        # Determine if processing is stuck (no heartbeat for >30 seconds during processing)
+        is_stuck = (
+            document.processing_status == 'processing' and 
+            heartbeat_age_seconds is not None and 
+            heartbeat_age_seconds > 30
+        )
+        
+        # Calculate total progress percentage
+        total_progress = 0
+        processing_progress = {}
+        try:
+            processing_progress = json.loads(document.processing_progress) if document.processing_progress else {}
+        except json.JSONDecodeError:
+            processing_progress = {}
+            
+        if processing_progress:
+            completed_levels = sum(1 for level_data in processing_progress.values() 
+                                 if level_data.get('status') == 'completed')
+            total_progress = int((completed_levels / document.total_levels) * 100) if document.total_levels > 0 else 0
+        
+        return Response({
+            'document_id': document.id,
+            'processing_status': document.processing_status,
+            'processing_error': document.processing_error,
+            'questions_generated_count': document.questions_generated_count,
+            'current_level_processing': document.current_level_processing,
+            'processing_progress': processing_progress,
+            'total_levels': document.total_levels,
+            'total_progress_percentage': total_progress,
+            'last_heartbeat': document.last_heartbeat,
+            'heartbeat_age_seconds': heartbeat_age_seconds,
+            'is_stuck': is_stuck,
+            'is_active': document.processing_status == 'processing' and not is_stuck,
+            'created_at': document.created_at,
+            'updated_at': document.updated_at
+        })
+        
+    except Document.DoesNotExist:
+        return Response({
+            'error': 'Document not found or access denied'
+        }, status=404)
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=500)
     
     def list(self, request, *args, **kwargs):
         """List exam configurations with filtering"""

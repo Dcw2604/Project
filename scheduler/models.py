@@ -87,6 +87,12 @@ class Document(models.Model):
     rag_chunks = models.TextField(blank=True, null=True, help_text="JSON stored RAG chunks")
     questions_generated_count = models.IntegerField(default=0, help_text="Number of questions generated from this document")
     
+    # Progress tracking and heartbeat fields
+    processing_progress = models.TextField(default='{}', blank=True, help_text="Processing progress per difficulty level (JSON string)")
+    last_heartbeat = models.DateTimeField(null=True, blank=True, help_text="Last processing heartbeat timestamp")
+    current_level_processing = models.CharField(max_length=10, blank=True, null=True, help_text="Currently processing difficulty level")
+    total_levels = models.IntegerField(default=3, help_text="Total number of difficulty levels to process")
+    
     def __str__(self):
         return f"{self.title} - {self.questions_generated_count} questions"
     
@@ -108,11 +114,20 @@ class QuestionBank(models.Model):
         ('5', 'Level 5 - Advanced'),
     )
     
+    SUBJECT_CHOICES = (
+        ('algorithms', 'Algorithms'),
+        ('data_structures', 'Data Structures'),
+        ('machine_learning', 'Machine Learning'),
+        ('deep_learning', 'Deep Learning'),
+        ('complexity_analysis', 'Complexity Analysis'),
+        ('programming', 'Programming Concepts'),
+    )
+    
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='questions')
     question_text = models.TextField()
     question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='multiple_choice')
     difficulty_level = models.CharField(max_length=2, choices=DIFFICULTY_LEVELS)
-    subject = models.CharField(max_length=100, default='math')
+    subject = models.CharField(max_length=50, choices=SUBJECT_CHOICES, default='algorithms')
     
     # Topic relationship for exam filtering
     topic = models.ForeignKey('Topic', on_delete=models.SET_NULL, null=True, blank=True, 

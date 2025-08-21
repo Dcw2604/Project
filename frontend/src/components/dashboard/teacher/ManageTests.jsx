@@ -769,6 +769,13 @@ const ManageTests = () => {
 
       {/* Question Generation Status Section */}
       {documents.length > 0 && (
+        // Show status section when processing, failed, or completed but no questions visible yet
+        documents.some(doc => 
+          doc.processing_status === 'processing' || 
+          doc.processing_status === 'failed' || 
+          (doc.processing_status === 'completed' && questions.length === 0)
+        )
+      ) && (
         <StyledCard sx={{ mb: 3 }}>
           <CardContent>
             <Typography variant="h6" fontWeight={600} mb={3} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -916,6 +923,24 @@ const ManageTests = () => {
             </Grid>
           </CardContent>
         </StyledCard>
+      )}
+
+      {/* Compact Success Summary - shown when questions are generated and status section is hidden */}
+      {documents.length > 0 && questions.length > 0 && 
+       documents.every(doc => doc.processing_status === 'completed') && (
+        <Box sx={{ mb: 2, p: 2, backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: 2, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+          <Box display="flex" alignItems="center" justifyContent="space-between">
+            <Box display="flex" alignItems="center">
+              <CheckCircle sx={{ color: '#10B981', mr: 1 }} />
+              <Typography variant="body1" sx={{ color: '#10B981', fontWeight: 600 }}>
+                Questions Generated Successfully
+              </Typography>
+            </Box>
+            <Typography variant="body2" sx={{ color: '#10B981' }}>
+              {questions.length} questions from {documents.length} document{documents.length > 1 ? 's' : ''}
+            </Typography>
+          </Box>
+        </Box>
       )}
 
       <StyledCard>
