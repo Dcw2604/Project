@@ -108,138 +108,138 @@ const LevelTest = () => {
   const [selectedLevel, setSelectedLevel] = useState(null);
   const [showLevelSelection, setShowLevelSelection] = useState(false);
 
-  // Math questions organized by difficulty level
-  const mathQuestions = {
+  // Algorithm questions organized by difficulty level
+  const algorithmQuestions = {
     3: [ // 3 points level
       {
         id: 1,
-        question: "What is 15 + 27?",
-        options: ["42", "41", "43", "40"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "What is the time complexity of binary search?",
+        options: ["O(n)", "O(log n)", "O(n²)", "O(1)"],
+        correct: 1,
+        subject: "Algorithms",
         difficulty: "Easy"
       },
       {
         id: 2,
-        question: "What is 8 × 7?",
-        options: ["54", "56", "58", "52"],
+        question: "Which data structure follows LIFO principle?",
+        options: ["Queue", "Stack", "Array", "Tree"],
         correct: 1,
-        subject: "Mathematics",
+        subject: "Algorithms",
         difficulty: "Easy"
       },
       {
         id: 3,
-        question: "What is 144 ÷ 12?",
-        options: ["11", "12", "13", "14"],
-        correct: 1,
-        subject: "Mathematics",
+        question: "What is the worst-case time complexity of bubble sort?",
+        options: ["O(n)", "O(n log n)", "O(n²)", "O(1)"],
+        correct: 2,
+        subject: "Algorithms",
         difficulty: "Easy"
       },
       {
         id: 4,
-        question: "What is 25% of 80?",
-        options: ["15", "20", "25", "30"],
-        correct: 1,
-        subject: "Mathematics",
+        question: "Which algorithm is used for finding shortest path in a graph?",
+        options: ["BFS", "DFS", "Dijkstra", "All of above"],
+        correct: 2,
+        subject: "Algorithms",
         difficulty: "Easy"
       },
       {
         id: 5,
-        question: "What is the perimeter of a rectangle with length 8 and width 5?",
-        options: ["26", "24", "28", "22"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "What does BFS stand for?",
+        options: ["Best First Search", "Breadth First Search", "Binary First Search", "Basic First Search"],
+        correct: 1,
+        subject: "Algorithms",
         difficulty: "Easy"
       }
     ],
     4: [ // 4 points level
       {
         id: 6,
-        question: "Solve for x: 3x + 7 = 22",
-        options: ["x = 5", "x = 4", "x = 6", "x = 3"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "What is the space complexity of merge sort?",
+        options: ["O(1)", "O(log n)", "O(n)", "O(n²)"],
+        correct: 2,
+        subject: "Algorithms",
         difficulty: "Medium"
       },
       {
         id: 7,
-        question: "What is the square root of 169?",
-        options: ["12", "13", "14", "15"],
+        question: "Which sorting algorithm is stable?",
+        options: ["Quick Sort", "Merge Sort", "Heap Sort", "Selection Sort"],
         correct: 1,
-        subject: "Mathematics",
+        subject: "Algorithms",
         difficulty: "Medium"
       },
       {
         id: 8,
-        question: "If a triangle has angles of 60° and 80°, what is the third angle?",
-        options: ["40°", "50°", "30°", "45°"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "What is dynamic programming?",
+        options: ["A programming language", "An optimization technique", "A data structure", "A sorting algorithm"],
+        correct: 1,
+        subject: "Algorithms",
         difficulty: "Medium"
       },
       {
         id: 9,
-        question: "What is 2³ + 3²?",
-        options: ["17", "15", "19", "13"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "Which data structure is used in DFS implementation?",
+        options: ["Queue", "Stack", "Array", "Linked List"],
+        correct: 1,
+        subject: "Algorithms",
         difficulty: "Medium"
       },
       {
         id: 10,
-        question: "What is the area of a circle with radius 4? (Use π ≈ 3.14)",
-        options: ["50.24", "48.56", "52.14", "46.82"],
+        question: "What is the average time complexity of hash table operations?",
+        options: ["O(1)", "O(log n)", "O(n)", "O(n²)"],
         correct: 0,
-        subject: "Mathematics",
+        subject: "Algorithms",
         difficulty: "Medium"
       }
     ],
     5: [ // 5 points level
       {
         id: 11,
-        question: "Solve the quadratic equation: x² - 5x + 6 = 0",
-        options: ["x = 2, 3", "x = 1, 6", "x = 2, 4", "x = 1, 5"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "What is the time complexity of Dijkstra's algorithm using binary heap?",
+        options: ["O(V²)", "O(E log V)", "O(V log E)", "O(E + V)"],
+        correct: 1,
+        subject: "Algorithms",
         difficulty: "Hard"
       },
       {
         id: 12,
-        question: "What is the derivative of f(x) = 3x² + 2x - 1?",
-        options: ["6x + 2", "6x - 2", "3x + 2", "6x + 1"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "Which algorithm technique is used in finding strongly connected components?",
+        options: ["Greedy", "Dynamic Programming", "DFS", "BFS"],
+        correct: 2,
+        subject: "Algorithms",
         difficulty: "Hard"
       },
       {
         id: 13,
-        question: "If log₂(x) = 5, what is x?",
-        options: ["32", "25", "10", "16"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "What is the worst case time complexity of AVL tree insertion?",
+        options: ["O(1)", "O(log n)", "O(n)", "O(n log n)"],
+        correct: 1,
+        subject: "Algorithms",
         difficulty: "Hard"
       },
       {
         id: 14,
-        question: "What is the sum of the infinite geometric series: 1 + 1/2 + 1/4 + 1/8 + ...?",
-        options: ["2", "1.5", "3", "2.5"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "Which of the following is NOT a characteristic of dynamic programming?",
+        options: ["Optimal substructure", "Overlapping subproblems", "Greedy choice", "Memoization"],
+        correct: 2,
+        subject: "Algorithms",
         difficulty: "Hard"
       },
       {
         id: 15,
-        question: "Find the integral of ∫(2x + 3)dx",
-        options: ["x² + 3x + C", "2x² + 3x + C", "x² + 3 + C", "2x + 3x + C"],
-        correct: 0,
-        subject: "Mathematics",
+        question: "What is the time complexity of Floyd-Warshall algorithm?",
+        options: ["O(V²)", "O(V³)", "O(E log V)", "O(V log V)"],
+        correct: 1,
+        subject: "Algorithms",
         difficulty: "Hard"
       }
     ]
   };
 
   const getQuestionsForLevel = () => {
-    return mathQuestions[selectedLevel] || [];
+    return algorithmQuestions[selectedLevel] || [];
   };
 
   useEffect(() => {
@@ -352,7 +352,7 @@ const LevelTest = () => {
     });
 
     // Save test result to localStorage for progress tracking
-    const testResults = JSON.parse(localStorage.getItem('mathTestResults') || '[]');
+    const testResults = JSON.parse(localStorage.getItem('algorithmTestResults') || '[]');
     const newResult = {
       date: new Date().toISOString(),
       selectedLevel: selectedLevel,
@@ -363,7 +363,7 @@ const LevelTest = () => {
       timeUsed: 1800 - timeLeft
     };
     testResults.push(newResult);
-    localStorage.setItem('mathTestResults', JSON.stringify(testResults));
+    localStorage.setItem('algorithmTestResults', JSON.stringify(testResults));
   };
 
   const renderLevelSelection = () => (
@@ -373,7 +373,7 @@ const LevelTest = () => {
           Select Test Level
         </Typography>
         <Typography variant="h6" sx={{ opacity: 0.9, mb: 3 }}>
-          Choose your math level to take an appropriate test
+          Choose your algorithm level to take an appropriate test
         </Typography>
       </HeaderCard>
 
@@ -389,9 +389,9 @@ const LevelTest = () => {
                   {level === 3 ? 'Basic Level' : level === 4 ? 'Intermediate Level' : 'Advanced Level'}
                 </Typography>
                 <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  {level === 3 ? 'Basic arithmetic, percentages, geometry' : 
-                   level === 4 ? 'Algebra, trigonometry, advanced geometry' : 
-                   'Calculus, logarithms, advanced mathematics'}
+                  {level === 3 ? 'Basic algorithms, time complexity, simple data structures' : 
+                   level === 4 ? 'Sorting algorithms, graph algorithms, dynamic programming' : 
+                   'Advanced algorithms, complexity analysis, data structures'}
                 </Typography>
               </CardContent>
             </GlassCard>
@@ -411,10 +411,10 @@ const LevelTest = () => {
     <>
       <HeaderCard elevation={0}>
         <Typography variant="h3" fontWeight={800} mb={1}>
-          Mathematics Level Test
+          Algorithm Level Test
         </Typography>
         <Typography variant="h6" sx={{ opacity: 0.9, mb: 3 }}>
-          Assess your mathematics skills and track your progress
+          Assess your algorithm skills and track your progress
         </Typography>
         <Stack direction="row" spacing={2} justifyContent="center">
           <ActionButton startIcon={<PlayArrow />} onClick={handleStartTest}>
@@ -437,7 +437,7 @@ const LevelTest = () => {
             <Box>
               <Typography variant="h6" fontWeight={600} mb={1}>📝 Subject</Typography>
               <Typography variant="body1" sx={{ opacity: 0.9 }}>
-                Mathematics only - covering arithmetic, algebra, geometry, and calculus based on selected level
+                Algorithms only - covering data structures, algorithms, complexity analysis, and computational thinking based on selected level
               </Typography>
             </Box>
             
@@ -451,9 +451,9 @@ const LevelTest = () => {
             <Box>
               <Typography variant="h6" fontWeight={600} mb={1}>🎯 Levels Available</Typography>
               <Stack direction="row" spacing={2} flexWrap="wrap" mt={1}>
-                <Chip label="Level 3: Basic Math" sx={{ bgcolor: '#10B981', color: 'white' }} />
-                <Chip label="Level 4: Intermediate Math" sx={{ bgcolor: '#F59E0B', color: 'white' }} />
-                <Chip label="Level 5: Advanced Math" sx={{ bgcolor: '#EF4444', color: 'white' }} />
+                <Chip label="Level 3: Basic Algorithms" sx={{ bgcolor: '#10B981', color: 'white' }} />
+                <Chip label="Level 4: Intermediate Algorithms" sx={{ bgcolor: '#F59E0B', color: 'white' }} />
+                <Chip label="Level 5: Advanced Algorithms" sx={{ bgcolor: '#EF4444', color: 'white' }} />
               </Stack>
             </Box>
             
@@ -681,7 +681,7 @@ const LevelTest = () => {
           '& .MuiAlert-icon': { color: '#3B82F6' }
         }}
       >
-        Based on your results, we'll recommend math courses that match your {testResult.level.toLowerCase()} level to help you progress effectively.
+        Based on your results, we'll recommend algorithm courses that match your {testResult.level.toLowerCase()} level to help you progress effectively.
       </Alert>
     </>
   );

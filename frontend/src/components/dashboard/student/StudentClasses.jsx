@@ -102,14 +102,14 @@ const StudentClasses = () => {
     const mockClasses = [
       {
         id: 1,
-        title: 'Advanced Mathematics',
+        title: 'Advanced Algorithms',
         teacher: 'Dr. Sarah Johnson',
         time: '2:00 PM - 3:30 PM',
         date: 'Today',
         status: 'active',
         rating: 4.8,
         studentsCount: 24,
-        subject: 'Mathematics',
+        subject: 'Algorithms',
         color: '#4F46E5'
       },
       {

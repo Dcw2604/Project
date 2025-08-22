@@ -83,7 +83,7 @@ const NewLevelTest = () => {
   const [testConfig, setTestConfig] = useState({
     test_type: 'level_test',
     difficulty_level: '3',
-    subject: 'math',
+    subject: 'algorithms',
     total_questions: 8, // Updated to match our generation: Level 3=8, Level 4=6, Level 5=4
     time_limit_minutes: null
   });
@@ -401,10 +401,10 @@ const NewLevelTest = () => {
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent'
         }}>
-          🎯 Math Assessment Center
+          🎯 Algorithm Assessment Center
         </Typography>
         <Typography variant="h6" sx={{ opacity: 0.9, maxWidth: 600, mx: 'auto' }}>
-          Choose your test type and difficulty level to begin your mathematical journey
+          Choose your test type and difficulty level to begin your algorithmic journey
         </Typography>
       </Box>
 
