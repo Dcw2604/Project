@@ -27,11 +27,12 @@ from .models import (
 from .structured_learning import StructuredLearningManager
 # Temporarily disable imports to get server running
 try:
-    from .document_utils import document_processor, process_uploaded_document
+    from .document_processing import DocumentProcessor
+    document_processor = DocumentProcessor()
+    print("✅ Document processor initialized successfully")
 except ImportError:
-    print("⚠️ Document utils not available")
+    print("⚠️ Document processing not available")
     document_processor = None
-    process_uploaded_document = None
 
 try:
     from sympy import sympify
@@ -580,80 +581,84 @@ class QuestionVariationGenerator:
 # Global question variation generator
 question_generator = QuestionVariationGenerator()
 
+def start_background_processing(document_id, file_path, document_type):
+    import threading, time
+    def task():
+        time.sleep(0.5)
+        process_document_background(document_id, file_path, document_type)
+    threading.Thread(target=task, daemon=True).start()
+
 def process_document_background(document_id, file_path, document_type):
-    """
-    Background processing function for complete document processing
-    This runs after the upload response is sent to avoid timeouts
-    """
-    import threading
-    import time
+    from django.utils import timezone
+    from .document_processing import DocumentProcessor, OllamaUnavailableError, InsufficientQuestionsError
     
-    def background_task():
-        try:
-            print(f"BACKGROUND: Starting full processing for document {document_id}")
-            
-            # Get the document
-            document = Document.objects.get(id=document_id)
-            
-            # Process complete document based on type
+    document = Document.objects.get(id=document_id)
+    try:
+        # If extracted_text is empty/suspiciously short, try re-extracting here
+        txt = (document.extracted_text or "").strip()
+        if len(txt) < 500:
+            res = None
             if document_type == 'pdf':
-                print("BACKGROUND: PDF processing temporarily disabled")
-                # TODO: Re-enable when pdfplumber is available
-                document.processed_text = "PDF processing temporarily unavailable"
-                document.processing_status = 'completed'
-                document.save()
-                return
-            
-            # For teachers: Generate questions after complete processing
-            if document.uploaded_by.role == 'teacher' and document.extracted_text:
-                print("BACKGROUND: Starting question generation")
-                
+                res = document_processor.extract_pdf_content(file_path)
+                # Optional OCR fallback for scanned PDFs
                 try:
-                    from .document_processing import DocumentProcessor
-                    doc_processor = DocumentProcessor()
-                    
-                    question_result = doc_processor.generate_questions_from_document(
-                        document_id=document.id,
-                        difficulty_levels=['3', '4', '5']
-                    )
-                    
-                    if question_result.get('success', False):
-                        questions_count = question_result.get('questions_generated', 0)
-                        document.questions_generated_count = questions_count
-                        document.processing_status = 'completed'
-                        print(f"BACKGROUND: Generated {questions_count} questions successfully")
-                    else:
-                        print(f"BACKGROUND: Question generation failed: {question_result.get('error', 'Unknown error')}")
-                        document.processing_status = 'completed'  # Still completed for text extraction
-                        
-                except Exception as question_error:
-                    print(f"BACKGROUND: Question generation error: {question_error}")
-                    document.processing_status = 'completed'
+                    from pdf2image import convert_from_path
+                    import pytesseract
+                    if document_type == 'pdf' and len(txt) < 500:
+                        pages = convert_from_path(file_path, dpi=200)
+                        ocr_text = "\n\n".join(pytesseract.image_to_string(p) for p in pages[:10])  # cap for safety
+                        if len(ocr_text.strip()) > len(txt):
+                            txt = ocr_text
+                            document.extracted_text = txt
+                            document.processed_content = txt
+                            document.save(update_fields=['extracted_text','processed_content','updated_at'])
+                except Exception:
+                    pass  # keep non-OCR behavior if libs not installed
+            elif document_type == 'image':
+                res = document_processor.extract_image_text(file_path)
             else:
-                document.processing_status = 'completed'
-            
-            # Save final state
-            document.save()
-            print(f"BACKGROUND: Document {document_id} processing completed")
-            
-        except Exception as e:
-            print(f"BACKGROUND: Error processing document {document_id}: {e}")
-            try:
-                document = Document.objects.get(id=document_id)
-                document.processing_status = 'failed'
-                document.save()
-            except:
+                # leave txt as-is for plain text
                 pass
-    
-    # Start background thread with a small delay to ensure response is sent first
-    def delayed_start():
-        time.sleep(1)  # 1 second delay to ensure response is sent
-        background_task()
-    
-    thread = threading.Thread(target=delayed_start)
-    thread.daemon = True
-    thread.start()
-    print(f"DEBUG: Background processing thread started for document {document_id}")
+            if res:
+                txt = res.get('text', '') if isinstance(res, dict) else str(res or '')
+                document.extracted_text = txt
+                document.processed_content = txt
+                document.save(update_fields=['extracted_text','processed_content','updated_at'])
+
+        # Not enough content? Mark failed clearly.
+        if len((document.extracted_text or '').strip()) < 500:
+            document.processing_status = 'failed'
+            document.processing_error = 'INSUFFICIENT_TEXT'
+            document.save(update_fields=['processing_status','processing_error','updated_at'])
+            return
+
+        # ✅ Proceed to generation (your existing call)
+        result = DocumentProcessor().generate_questions_from_document(
+            document_id=document.id,
+            difficulty_levels=['3','4','5'],
+            require_llm=True,     # your strict policy
+            min_per_level=10
+        )
+
+        # Recompute and mark completed only on success
+        total = QuestionBank.objects.filter(document_id=document.id).count()
+        document.questions_generated_count = total
+        document.processing_status = 'completed'
+        document.processing_error = ''
+        document.save(update_fields=['questions_generated_count','processing_status','processing_error','updated_at'])
+
+    except OllamaUnavailableError:
+        document.processing_status = 'failed'
+        document.processing_error = 'OLLAMA_UNAVAILABLE'
+        document.save(update_fields=['processing_status','processing_error','updated_at'])
+    except InsufficientQuestionsError as e:
+        document.processing_status = 'failed'
+        document.processing_error = str(e) or 'INSUFFICIENT_QUESTIONS'
+        document.save(update_fields=['processing_status','processing_error','updated_at'])
+    except Exception as e:
+        document.processing_status = 'failed'
+        document.processing_error = f'GENERATION_ERROR: {e}'
+        document.save(update_fields=['processing_status','processing_error','updated_at'])
 
 # Helper functions
 def get_simple_ollama_response(question: str) -> str:
@@ -1500,33 +1505,36 @@ def chat_interaction(request):
             print(f"DEBUG: Not a math expression, continuing to other processing")
             target_document = None
             
+            # Note: File upload is now handled by upload_document function
             if uploaded_file:
-                doc_result = process_uploaded_document(uploaded_file, user, uploaded_file.name)
+                print("DEBUG: File upload detected but not processed in chat endpoint")
+                # Legacy upload processing commented out - use upload_document endpoint instead
+                pass
                 
-                if doc_result['success']:
-                    # Save document to database
-                    document = Document.objects.create(
-                        uploaded_by=user,
-                        title=doc_result['title'],
-                        document_type=doc_result['document_type'],
-                        file_path=doc_result['file_path'],
-                        extracted_text=doc_result['extraction_result']['text'],
-                        metadata=json.dumps(doc_result['extraction_result']['metadata']),
-                        processing_status='completed'
-                    )
-                    target_document = document
-                    document_ids = [str(document.id)]
-                    
-                    response_data["document_processed"] = True
-                    response_data["processing_info"] = {
-                        "document_id": document.id,
-                        "title": document.title,
-                        "text_length": len(document.extracted_text),
-                        "type": document.document_type
-                    }
-                    response_data["features_used"].append("Document Upload & Processing")
-                else:
-                    return Response({"error": f"Document processing failed: {doc_result['error']}"}, status=400)
+                # if doc_result['success']:
+                #     # Save document to database
+                #     document = Document.objects.create(
+                #         uploaded_by=user,
+                #         title=doc_result['title'],
+                #         document_type=doc_result['document_type'],
+                #         file_path=doc_result['file_path'],
+                #         extracted_text=doc_result['extraction_result']['text'],
+                #         metadata=json.dumps(doc_result['extraction_result']['metadata']),
+                #         processing_status='completed'
+                #     )
+                #     target_document = document
+                #     document_ids = [str(document.id)]
+                #     
+                #     response_data["document_processed"] = True
+                #     response_data["processing_info"] = {
+                #         "document_id": document.id,
+                #         "title": document.title,
+                #         "text_length": len(document.extracted_text),
+                #         "type": document.document_type
+                #     }
+                #     response_data["features_used"].append("Document Upload & Processing")
+                # else:
+                #     return Response({"error": f"Document processing failed: {doc_result['error']}"}, status=400)
             
             # 🔍 STEP 3: Document-based Q&A with RAG
             if document_ids:
@@ -2063,7 +2071,7 @@ def test_image_upload(request):
             
             # Test OCR
             try:
-                from .document_utils import document_processor
+                from .document_processing import document_processor
                 ocr_result = document_processor.extract_image_text(temp_path)
                 response_data["ocr_result"] = {
                     "text_length": len(ocr_result.get('text', '')),
@@ -2175,8 +2183,24 @@ def upload_document(request):
         extracted_text = ""
         try:
             if document_type == 'pdf':
-                print("DEBUG: PDF processing temporarily disabled")
-                extracted_text = "PDF processing temporarily unavailable. Please install required dependencies."
+                print("DEBUG: Processing PDF document")
+                try:
+                    res = document_processor.extract_pdf_content(file_path)
+                    extracted_text = res.get('text', '') if isinstance(res, dict) else (str(res or ''))
+                    print(f"DEBUG: PDF extracted {len(extracted_text)} characters")
+                except Exception as e:
+                    print(f"ERROR: PDF extraction failed: {e}")
+                    document.processing_status = 'failed'
+                    document.processing_error = f'PDF_EXTRACT_ERROR: {e}'
+                    document.extracted_text = ''
+                    document.processed_content = ''
+                    document.save(update_fields=['processing_status','processing_error','extracted_text','processed_content','updated_at'])
+                    return Response({
+                        "error": "Failed to extract PDF",
+                        "detail": str(e),
+                        "code": "PDF_EXTRACT_ERROR",
+                        "document_id": document.id
+                    }, status=422)
                     
             elif document_type == 'image':
                 print("DEBUG: Processing image with OCR")
@@ -2202,7 +2226,7 @@ def upload_document(request):
             document.extracted_text = extracted_text
             document.processed_content = extracted_text
             document.processing_status = 'processing'  # Update status
-            document.save()  # IMPORTANT: Save before question generation!
+            document.save(update_fields=['extracted_text','processed_content','processing_status','updated_at'])
             print("DEBUG: Updated document with extracted text and saved to database")
             
         except Exception as extraction_error:
@@ -2223,32 +2247,20 @@ def upload_document(request):
                 print("DEBUG: Processing for teacher - generating questions")
                 print(f"DEBUG: Document {document.id} has extracted_text length: {len(document.extracted_text)}")
                 
-                # Verify that the document actually has text before proceeding
-                if not document.extracted_text or len(document.extracted_text.strip()) < 100:
-                    print(f"ERROR: Document has insufficient text for question generation: {len(document.extracted_text)} chars")
-                    document.processing_status = 'completed'
-                    questions_generated = 0
-                else:
-                    # For immediate response: set status to processing
-                    # Trigger background processing for complete document processing and questions
-                    document.processing_status = 'processing'  # Keep as processing
-                    questions_generated = 0  # Will be updated by background task
-                    
-                    # Start background processing
-                    process_document_background(document.id, file_path, document.document_type)
-                    
-                    print(f"DEBUG: Document uploaded successfully. Background processing started for question generation.")
+                # For teachers: ALWAYS start background thread and report that to the client
+                start_background_processing(document.id, file_path, document_type)
+                return Response({
+                    "document_id": document.id,
+                    "processing_status": document.processing_status,
+                    "background_processing": True,
+                    "questions_generated": 0
+                }, status=201)
                     
             else:
                 print("DEBUG: Processing for student - no question generation")
                 # Students: Just process for RAG and chat
                 document.processing_status = 'completed'
                 document.questions_generated_count = 0
-                
-        except Exception as processing_error:
-            print(f"ERROR: Role-based processing failed: {processing_error}")
-            # Continue with basic processing even if advanced features fail
-            document.processing_status = 'completed'
                 
         except Exception as processing_error:
             print(f"ERROR: Role-based processing failed: {processing_error}")

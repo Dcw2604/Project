@@ -464,39 +464,66 @@ class AlgorithmDocumentProcessor:
             }
     
     def extract_pdf_content(self, file_path: str) -> Dict[str, Any]:
-        """Extract text from PDF files using pdfplumber"""
+        """Extract text from PDF files using enhanced DocumentProcessor with OCR fallback"""
         try:
-            import pdfplumber
+            # Import DocumentProcessor for enhanced PDF processing
+            from .document_processing import DocumentProcessor
             
-            extracted_data = {
-                'text': '',
-                'metadata': {}
-            }
+            print("DEBUG: Using enhanced PDF processing with OCR fallback...")
             
-            with pdfplumber.open(file_path) as pdf:
-                # Extract metadata
-                extracted_data['metadata'] = {
-                    'total_pages': len(pdf.pages),
-                    'title': pdf.metadata.get('Title', ''),
-                    'author': pdf.metadata.get('Author', '')
-                }
-                
-                # Extract text from all pages
-                full_text = ""
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        full_text += f"\n{page_text}"
-                
-                extracted_data['text'] = full_text.strip()
+            # Create DocumentProcessor instance and use enhanced extraction
+            doc_processor = DocumentProcessor()
+            result = doc_processor.extract_pdf_content(file_path)
             
-            return extracted_data
+            # Ensure compatibility with existing code expecting 'text' and 'metadata'
+            if 'text' not in result:
+                result['text'] = ''
+            if 'metadata' not in result:
+                result['metadata'] = {}
+            
+            print(f"DEBUG: Enhanced PDF extraction completed. Text length: {len(result['text'])}")
+            
+            return result
             
         except Exception as e:
-            return {
-                'text': f"PDF extraction failed: {str(e)}",
-                'metadata': {}
-            }
+            print(f"ERROR: Enhanced PDF extraction failed: {str(e)}")
+            # Fallback to simple extraction
+            try:
+                import pdfplumber
+                
+                print("DEBUG: Falling back to simple PDF extraction...")
+                
+                extracted_data = {
+                    'text': '',
+                    'metadata': {}
+                }
+                
+                with pdfplumber.open(file_path) as pdf:
+                    # Extract metadata
+                    extracted_data['metadata'] = {
+                        'total_pages': len(pdf.pages),
+                        'title': pdf.metadata.get('Title', ''),
+                        'author': pdf.metadata.get('Author', '')
+                    }
+                    
+                    # Extract text from all pages
+                    full_text = ""
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            full_text += f"\n{page_text}"
+                    
+                    extracted_data['text'] = full_text.strip()
+                
+                print(f"DEBUG: Simple PDF extraction completed. Text length: {len(extracted_data['text'])}")
+                return extracted_data
+                
+            except Exception as fallback_error:
+                print(f"ERROR: Both enhanced and simple PDF extraction failed: {fallback_error}")
+                return {
+                    'text': f"PDF extraction failed: {str(fallback_error)}",
+                    'metadata': {}
+                }
     
     def extract_image_content(self, file_path: str) -> Dict[str, Any]:
         """Extract text from image files (placeholder for OCR)"""
