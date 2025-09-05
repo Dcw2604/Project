@@ -165,11 +165,14 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # PaddleOCR Configuration
-try:
-    from paddleocr import PaddleOCR, __version__ as paddleocr_version
-    print(f"✅ PaddleOCR available - Version: {paddleocr_version}")
-except ImportError:
-    print("❌ PaddleOCR not installed. Install with: pip install paddleocr")
+if os.environ.get('RUN_MAIN') == 'true':
+    try:
+        from paddleocr import PaddleOCR, __version__ as paddleocr_version
+        print(f"✅ PaddleOCR available - Version: {paddleocr_version}")
+    except ImportError:
+        print("❌ PaddleOCR not installed. Install with: pip install paddleocr")
+    
+    print("🔧 Django settings loaded successfully")
 
 # OCR Processing Settings
 OCR_SETTINGS = {
@@ -179,4 +182,4 @@ OCR_SETTINGS = {
     'OCR_CONFIDENCE_THRESHOLD': 30,  # Minimum confidence for text regions
 }
 
-print("🔧 Django settings loaded successfully")
+#print("🔧 Django settings loaded successfully")

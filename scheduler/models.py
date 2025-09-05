@@ -102,45 +102,56 @@ class Document(models.Model):
 # Question Bank for storing generated questions from documents
 class QuestionBank(models.Model):
     QUESTION_TYPES = (
+        ('open_ended', 'Open Ended'),
+        ('coding', 'Coding Problem'),
+        ('algorithm_design', 'Algorithm Design'),
+        ('complexity_analysis', 'Complexity Analysis'),
         ('multiple_choice', 'Multiple Choice'),
-        ('true_false', 'True/False'),
-        ('short_answer', 'Short Answer'),
-        ('essay', 'Essay'),
     )
     
     DIFFICULTY_LEVELS = (
-        ('3', 'Level 3 - Basic'),
-        ('4', 'Level 4 - Intermediate'),
-        ('5', 'Level 5 - Advanced'),
+        ('easy', 'Easy'),
+        ('normal', 'Normal'),
+        ('hard', 'Hard'),
     )
     
     SUBJECT_CHOICES = (
         ('algorithms', 'Algorithms'),
         ('data_structures', 'Data Structures'),
-        ('machine_learning', 'Machine Learning'),
-        ('deep_learning', 'Deep Learning'),
+        ('sorting', 'Sorting Algorithms'),
+        ('searching', 'Searching Algorithms'),
+        ('graph_algorithms', 'Graph Algorithms'),
+        ('dynamic_programming', 'Dynamic Programming'),
+        ('greedy_algorithms', 'Greedy Algorithms'),
         ('complexity_analysis', 'Complexity Analysis'),
-        ('programming', 'Programming Concepts'),
+        ('recursion', 'Recursion'),
+        ('divide_conquer', 'Divide and Conquer'),
     )
     
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='questions')
     question_text = models.TextField()
-    question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='multiple_choice')
-    difficulty_level = models.CharField(max_length=2, choices=DIFFICULTY_LEVELS)
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='open_ended')
+    difficulty_level = models.CharField(max_length=10, choices=DIFFICULTY_LEVELS)
     subject = models.CharField(max_length=50, choices=SUBJECT_CHOICES, default='algorithms')
     
     # Topic relationship for exam filtering
     topic = models.ForeignKey('Topic', on_delete=models.SET_NULL, null=True, blank=True, 
                              related_name='questions', help_text="Topic category for this question")
     
-    # For multiple choice questions
-    option_a = models.TextField(blank=True, null=True)
-    option_b = models.TextField(blank=True, null=True)
-    option_c = models.TextField(blank=True, null=True)
-    option_d = models.TextField(blank=True, null=True)
+    # For open-ended algorithm questions
+    expected_approach = models.TextField(blank=True, null=True, help_text="Expected solution approach or algorithm")
+    key_concepts = models.TextField(blank=True, null=True, help_text="Key concepts the question tests")
+    hints = models.TextField(blank=True, null=True, help_text="AI-generated hints for struggling students")
+    sample_solution = models.TextField(blank=True, null=True, help_text="Sample solution or pseudocode")
     
-    correct_answer = models.TextField()  # Store the correct answer or option letter
+    correct_answer = models.TextField()  # Store the correct answer or approach
     explanation = models.TextField(blank=True, null=True)  # RAG-generated explanation
+    
+    # Multiple choice options (for multiple choice questions)
+    option_a = models.TextField(blank=True, null=True, help_text="Option A for multiple choice questions")
+    option_b = models.TextField(blank=True, null=True, help_text="Option B for multiple choice questions")
+    option_c = models.TextField(blank=True, null=True, help_text="Option C for multiple choice questions")
+    option_d = models.TextField(blank=True, null=True, help_text="Option D for multiple choice questions")
     
     # Auto-generated or teacher-modified
     is_approved = models.BooleanField(default=True)
@@ -162,9 +173,9 @@ class Exam(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_exams', limit_choices_to={'role': 'teacher'})
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
-    subject = models.CharField(max_length=100, default='math')
+    subject = models.CharField(max_length=100, default='algorithms')
     # Optional default difficulty for sampling; exams can be mixed
-    difficulty_level = models.CharField(max_length=2, choices=QuestionBank.DIFFICULTY_LEVELS, blank=True, null=True)
+    difficulty_level = models.CharField(max_length=10, choices=QuestionBank.DIFFICULTY_LEVELS, blank=True, null=True)
 
     total_questions = models.IntegerField(default=10)
     exam_time_limit_minutes = models.IntegerField(null=True, blank=True)
@@ -200,8 +211,8 @@ class TestSession(models.Model):
     
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='test_sessions')
     test_type = models.CharField(max_length=20, choices=TEST_TYPES)
-    difficulty_level = models.CharField(max_length=2, choices=QuestionBank.DIFFICULTY_LEVELS)
-    subject = models.CharField(max_length=100, default='math')
+    difficulty_level = models.CharField(max_length=10, choices=QuestionBank.DIFFICULTY_LEVELS)
+    subject = models.CharField(max_length=100, default='algorithms')
     
     # Link to exam when the session is created from a published exam
     exam = models.ForeignKey('Exam', on_delete=models.SET_NULL, null=True, blank=True, related_name='sessions')
@@ -288,6 +299,34 @@ class StudentAnswer(models.Model):
         session_type = "Test" if self.test_session else "Exam"
         session_id = self.test_session_id if self.test_session else self.exam_session_id
         return f"{self.student.username} - {session_type} {session_id} - Q{self.question.id} - {'✓' if self.is_correct else '✗'}"
+
+
+# Model for tracking AI hints given during tests
+class TestHint(models.Model):
+    """
+    Tracks AI-generated hints provided to students during open-ended questions
+    """
+    student = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'student'})
+    question = models.ForeignKey(QuestionBank, on_delete=models.CASCADE)
+    test_session = models.ForeignKey(TestSession, on_delete=models.CASCADE, related_name='hints')
+    
+    # Hint details
+    hint_text = models.TextField(help_text="AI-generated hint text")
+    hint_level = models.IntegerField(default=1, help_text="Progressive hint level (1=basic, 2=medium, 3=detailed)")
+    student_input = models.TextField(help_text="Student's input that triggered the hint")
+    
+    # RAG context used for hint generation
+    context_used = models.TextField(blank=True, null=True, help_text="Document context used for hint")
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    was_helpful = models.BooleanField(null=True, blank=True, help_text="Student feedback on hint helpfulness")
+    
+    def __str__(self):
+        return f"Hint L{self.hint_level} for {self.student.username} - Q{self.question.id}"
+    
+    class Meta:
+        ordering = ['created_at']
 
 
 # =================
@@ -837,3 +876,34 @@ class ExamConfigQuestion(models.Model):
     
     def __str__(self):
         return f"Config {self.exam_config.id} - Q{self.order_index}: {self.question.question_text[:50]}..."
+
+
+# Student Test Results for Level Assessment
+class StudentTestResult(models.Model):
+    DIFFICULTY_CHOICES = (
+        ('easy', 'Easy'),
+        ('normal', 'Normal'), 
+        ('hard', 'Hard'),
+    )
+    
+    LEVEL_CHOICES = (
+        ('Beginner', 'Beginner'),
+        ('Intermediate', 'Intermediate'),
+        ('Advanced', 'Advanced'),
+    )
+    
+    student = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'student'})
+    difficulty_level = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES)
+    total_questions = models.IntegerField()
+    correct_answers = models.IntegerField()
+    time_taken_seconds = models.IntegerField()
+    percentage_score = models.FloatField()
+    assessed_level = models.CharField(max_length=20, choices=LEVEL_CHOICES)
+    questions_used = models.TextField(blank=True, null=True, help_text="JSON array of question IDs used")
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.assessed_level} ({self.percentage_score}%)"
+    
+    class Meta:
+        ordering = ['-created_at']

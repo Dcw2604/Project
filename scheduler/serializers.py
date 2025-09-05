@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Lesson, Document, QuestionBank, TestSession, StudentAnswer, ChatSession, ConversationMessage, ConversationInsight, LearningPath, Topic, ExamSession, ExamSessionTopic, ExamSessionQuestion, ExamConfig, ExamConfigQuestion, ExamAnswerAttempt
+from .models import Lesson, Document, QuestionBank, TestSession, StudentAnswer, ChatSession, ConversationMessage, ConversationInsight, LearningPath, Topic, ExamSession, ExamSessionTopic, ExamSessionQuestion, ExamConfig, ExamConfigQuestion, ExamAnswerAttempt, TestHint
 
 from .models import User
 
@@ -67,16 +67,16 @@ class QuestionBankSerializer(serializers.ModelSerializer):
         model = QuestionBank
         fields = ['id', 'document', 'document_title', 'topic', 'topic_id', 'topic_name',
                  'question_text', 'question_type', 'difficulty_level', 'subject', 
-                 'option_a', 'option_b', 'option_c', 'option_d', 'correct_answer', 
-                 'explanation', 'is_approved', 'created_by_ai', 'modified_by_teacher', 
-                 'is_generated', 'created_at']
+                 'expected_approach', 'key_concepts', 'hints', 'sample_solution',
+                 'correct_answer', 'explanation', 'is_approved', 'created_by_ai', 
+                 'modified_by_teacher', 'is_generated', 'created_at']
         read_only_fields = ['id', 'created_at', 'created_by_ai']
 
 class QuestionBankCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuestionBank
         fields = ['document', 'topic', 'question_text', 'question_type', 'difficulty_level', 
-                 'subject', 'option_a', 'option_b', 'option_c', 'option_d',
+                 'subject', 'expected_approach', 'key_concepts', 'hints', 'sample_solution',
                  'correct_answer', 'explanation', 'is_approved']
 
 # Exam serializers
@@ -139,6 +139,19 @@ class TestSessionCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSession
         fields = ['test_type', 'difficulty_level', 'subject', 'total_questions', 'time_limit_minutes']
+
+
+# Test Hint serializer for AI-powered hints
+class TestHintSerializer(serializers.ModelSerializer):
+    question_text = serializers.CharField(source='question.question_text', read_only=True)
+    student_username = serializers.CharField(source='student.username', read_only=True)
+    
+    class Meta:
+        model = TestHint
+        fields = ['id', 'student', 'student_username', 'question', 'question_text', 
+                 'hint_text', 'hint_level', 'student_input', 'context_used', 
+                 'created_at', 'was_helpful']
+        read_only_fields = ['id', 'created_at']
 
 
 # =================
@@ -523,11 +536,32 @@ class ExamSessionSerializer(serializers.ModelSerializer):
     topics = ExamSessionTopicSerializer(source='session_topics', many=True, read_only=True)
     questions = ExamSessionQuestionSerializer(source='session_questions', many=True, read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    total_questions = serializers.IntegerField(source='num_questions', read_only=True)
+    duration_minutes = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    difficulty_level = serializers.SerializerMethodField()
+    
+    def get_duration_minutes(self, obj):
+        """Convert time_limit_seconds to minutes"""
+        if obj.time_limit_seconds:
+            return obj.time_limit_seconds // 60
+        return 60  # Default to 60 minutes
+    
+    def get_status(self, obj):
+        """Get the status of the exam session"""
+        if obj.is_published:
+            return 'Published'
+        return 'Draft'
+    
+    def get_difficulty_level(self, obj):
+        """Get difficulty level based on questions or default"""
+        return 'Mixed'  # Default difficulty level
     
     class Meta:
         model = ExamSession
-        fields = ['id', 'created_by', 'created_by_username', 'num_questions', 
-                 'random_topic_distribution', 'time_limit_seconds', 'created_at', 
+        fields = ['id', 'title', 'description', 'created_by', 'created_by_username', 'num_questions', 
+                 'total_questions', 'duration_minutes', 'status', 'difficulty_level',
+                 'random_topic_distribution', 'time_limit_seconds', 'is_published', 'created_at', 
                  'updated_at', 'topics', 'questions']
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
 

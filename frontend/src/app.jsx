@@ -13,12 +13,8 @@ import TextField from '@mui/material/TextField';
 import Alert from '@mui/material/Alert';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import { Chat, Schedule, Assignment, TrendingUp, Psychology } from '@mui/icons-material';
-import ChatbotQuestions from './components/dashboard/student/ChatbotQuestions';
-import StudentClasses from './components/dashboard/student/StudentClasses';
-import NewLevelTest from './components/dashboard/student/NewLevelTest';
-import CheckLevel from './components/dashboard/student/CheckLevel';
-import InteractiveLearning from './components/dashboard/student/InteractiveLearning';
+import { Chat, Schedule, Assignment, TrendingUp } from '@mui/icons-material';
+import StudentDashboard from './components/dashboard/student/StudentDashboard';
 import TeacherDashboard from './components/dashboard/teacher/TeacherDashboard';
 import { useAuth } from './hooks/useAuth';
 import './styles/globals.css';
@@ -50,30 +46,12 @@ const App = () => {
   const handleSignOut = () => {
     logout();
     setCurrentPage('landing');
-    setActiveTab(0); // Reset tab when signing out
+    setActiveTab(0);
   };
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
   };
-
-  const renderDashboardContent = () => {
-    switch (activeTab) {
-      case 0:
-        return <ChatbotQuestions />;
-      case 1:
-        return <StudentClasses />;
-      case 2:
-        return <InteractiveLearning />;
-      case 3:
-        return <NewLevelTest />;
-      case 4:
-        return <CheckLevel />;
-      default:
-        return <ChatbotQuestions />;
-    }
-  };
-
   const renderCurrentPage = () => {
     // If user is authenticated, show appropriate dashboard
     if (isAuthenticated && user) {
@@ -82,12 +60,8 @@ const App = () => {
         return <TeacherDashboard />;
       }
       
-      // Default to student dashboard with tabs
-      return (
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%', overflow: 'hidden' }}>
-          {renderDashboardContent()}
-        </Box>
-      );
+      // Default to student dashboard
+      return <StudentDashboard activeTab={activeTab} />;
     }
     
     // If not authenticated, show login/signup pages with centered layout
@@ -162,7 +136,6 @@ const App = () => {
             variant="h4" 
             component="div" 
             sx={{ 
-              flexGrow: 1, 
               fontWeight: 800, 
               color: '#ffffff', 
               letterSpacing: 1,
@@ -171,69 +144,66 @@ const App = () => {
           >
             EduConnect
           </Typography>
+          
+          {/* Student Navigation Tabs */}
+          {isAuthenticated && user && user.role === 'student' && (
+            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'center', mx: 4 }}>
+              <Tabs 
+                value={activeTab} 
+                onChange={handleTabChange}
+                textColor="inherit"
+                TabIndicatorProps={{
+                  style: {
+                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                    height: '3px',
+                    borderRadius: '2px'
+                  }
+                }}
+                sx={{
+                  '& .MuiTab-root': {
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    fontWeight: 600,
+                    fontSize: '0.95rem',
+                    textTransform: 'none',
+                    minWidth: '120px',
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      transform: 'translateY(-2px)'
+                    },
+                    '&.Mui-selected': {
+                      color: '#ffffff',
+                      fontWeight: 700
+                    }
+                  }
+                }}
+              >
+                <Tab 
+                  icon={<Chat sx={{ fontSize: '1.2rem' }} />} 
+                  label="AI Chatbot" 
+                  iconPosition="start"
+                />
+                <Tab 
+                  icon={<Schedule sx={{ fontSize: '1.2rem' }} />} 
+                  label="My Classes" 
+                  iconPosition="start"
+                />
+                <Tab 
+                  icon={<Assignment sx={{ fontSize: '1.2rem' }} />} 
+                  label="Algorithm Test" 
+                  iconPosition="start"
+                />
+                <Tab 
+                  icon={<TrendingUp sx={{ fontSize: '1.2rem' }} />} 
+                  label="Progress" 
+                  iconPosition="start"
+                />
+              </Tabs>
+            </Box>
+          )}
+          
           {isAuthenticated ? (
             <>
-              {/* Only show navigation tabs for students */}
-              {user && user.role === 'student' && (
-                <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'center', mx: 4 }}>
-                  <Tabs 
-                    value={activeTab} 
-                    onChange={handleTabChange}
-                    textColor="inherit"
-                    TabIndicatorProps={{
-                      style: {
-                        backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                        height: '3px',
-                        borderRadius: '2px'
-                      }
-                    }}
-                    sx={{
-                      '& .MuiTab-root': {
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        fontWeight: 600,
-                        fontSize: '0.95rem',
-                        textTransform: 'none',
-                        minWidth: '120px',
-                        transition: 'all 0.3s ease',
-                        '&:hover': {
-                          color: 'rgba(255, 255, 255, 0.9)',
-                          transform: 'translateY(-2px)'
-                        },
-                        '&.Mui-selected': {
-                          color: '#ffffff',
-                          fontWeight: 700
-                        }
-                      }
-                    }}
-                  >
-                    <Tab 
-                      icon={<Chat sx={{ fontSize: '1.2rem' }} />} 
-                      label="AI Chatbot" 
-                      iconPosition="start"
-                    />
-                    <Tab 
-                      icon={<Schedule sx={{ fontSize: '1.2rem' }} />} 
-                      label="My Classes" 
-                      iconPosition="start"
-                    />
-                    <Tab 
-                      icon={<Psychology sx={{ fontSize: '1.2rem' }} />} 
-                      label="Interactive Learning" 
-                      iconPosition="start"
-                    />
-                    <Tab 
-                      icon={<Assignment sx={{ fontSize: '1.2rem' }} />} 
-                      label="Level Test" 
-                      iconPosition="start"
-                    />
-                    <Tab 
-                      icon={<TrendingUp sx={{ fontSize: '1.2rem' }} />} 
-                      label="Progress" 
-                      iconPosition="start"
-                    />
-                  </Tabs>
-                </Box>
-              )}
               <Button 
                 color="inherit" 
                 variant="outlined" 

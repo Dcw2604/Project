@@ -1,10 +1,9 @@
-import React, { useState } from "react";
+import React from "react";
 import ChatbotQuestions from "./ChatbotQuestions";
 import StudentClasses from "./StudentClasses";
-import LevelTest from "./LevelTest";
+import ChatAlgorithmTest from "./ChatAlgorithmTest";
 import CheckLevel from "./CheckLevel";
-import { Box, Tabs, Tab, Paper, Container, styled } from '@mui/material';
-import { Chat, Schedule, Assignment, Timeline, TrendingUp } from '@mui/icons-material';
+import { Box, styled } from '@mui/material';
 
 // Custom styled components with modern glassmorphism design
 const StyledBox = styled(Box)(({ theme }) => ({
@@ -24,51 +23,6 @@ const StyledBox = styled(Box)(({ theme }) => ({
   }
 }));
 
-const StyledTabs = styled(Tabs)(({ theme }) => ({
-  '& .MuiTabs-flexContainer': {
-    gap: '8px',
-    padding: '16px 0'
-  },
-  '& .MuiTab-root': {
-    minHeight: '64px',
-    borderRadius: '16px',
-    margin: '0 4px',
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontWeight: 600,
-    fontSize: '0.95rem',
-    textTransform: 'none',
-    background: 'rgba(255, 255, 255, 0.1)',
-    backdropFilter: 'blur(10px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    '&:hover': {
-      background: 'rgba(255, 255, 255, 0.2)',
-      color: 'rgba(255, 255, 255, 0.9)',
-      transform: 'translateY(-2px)',
-      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
-    },
-    '&.Mui-selected': {
-      background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1))',
-      color: '#ffffff',
-      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-      transform: 'translateY(-2px)'
-    }
-  },
-  '& .MuiTabs-indicator': {
-    display: 'none'
-  }
-}));
-
-const TabContainer = styled(Paper)(({ theme }) => ({
-  background: 'rgba(255, 255, 255, 0.05)',
-  backdropFilter: 'blur(20px)',
-  border: '1px solid rgba(255, 255, 255, 0.1)',
-  borderRadius: '0',
-  boxShadow: 'none',
-  position: 'relative',
-  zIndex: 1
-}));
-
 const ContentBox = styled(Box)({
   height: 'calc(100vh - 120px)',
   position: 'relative',
@@ -82,48 +36,9 @@ const TabPanel = ({ children, value, index }) => (
   </div>
 );
 
-const StudentDashboard = () => {
-  const [activeTab, setActiveTab] = useState(0);  // Default to chat tab
-
-  const handleChange = (event, newValue) => {
-    setActiveTab(newValue);
-  };
-
+const StudentDashboard = ({ activeTab = 0 }) => {
   return (
     <StyledBox>
-      {/* Navigation Tabs */}
-      <TabContainer elevation={0}>
-        <Container>
-          <StyledTabs 
-            value={activeTab} 
-            onChange={handleChange}
-            aria-label="Dashboard Navigation"
-            variant="fullWidth"
-          >
-            <Tab 
-              icon={<Chat sx={{ fontSize: '1.5rem' }} />} 
-              label="AI Chatbot" 
-              iconPosition="top"
-            />
-            <Tab 
-              icon={<Schedule sx={{ fontSize: '1.5rem' }} />} 
-              label="My Classes" 
-              iconPosition="top"
-            />
-            <Tab 
-              icon={<Assignment sx={{ fontSize: '1.5rem' }} />} 
-              label="Level Test" 
-              iconPosition="top"
-            />
-            <Tab 
-              icon={<TrendingUp sx={{ fontSize: '1.5rem' }} />} 
-              label="Progress" 
-              iconPosition="top"
-            />
-          </StyledTabs>
-        </Container>
-      </TabContainer>
-
       {/* Content Area */}
       <ContentBox>
         <TabPanel value={activeTab} index={0}>
@@ -140,7 +55,7 @@ const StudentDashboard = () => {
 
         <TabPanel value={activeTab} index={2}>
           <Box position="absolute" inset={0}>
-            <LevelTest />
+            <ChatAlgorithmTest />
           </Box>
         </TabPanel>
 

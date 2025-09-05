@@ -89,7 +89,7 @@ const StatCard = styled(GlassCard)(({ theme }) => ({
 }));
 
 const CheckLevel = () => {
-  const [mathTestResults, setMathTestResults] = useState([]);
+  const [algorithmTestResults, setAlgorithmTestResults] = useState([]);
   const [overallStats, setOverallStats] = useState({
     totalTests: 0,
     averageScore: 0,
@@ -100,9 +100,9 @@ const CheckLevel = () => {
   });
 
   useEffect(() => {
-    // Load math test results from localStorage
-    const results = JSON.parse(localStorage.getItem('mathTestResults') || '[]');
-    setMathTestResults(results);
+    // Load algorithm test results from localStorage
+    const results = JSON.parse(localStorage.getItem('algorithmTestResults') || '[]');
+    setAlgorithmTestResults(results);
     
     if (results.length > 0) {
       calculateOverallStats(results);
@@ -161,19 +161,19 @@ const CheckLevel = () => {
   const getAchievements = () => {
     const achievements = [];
     
-    if (mathTestResults.length >= 1) {
+    if (algorithmTestResults.length >= 1) {
       achievements.push({ 
         title: 'First Steps', 
-        description: 'Completed your first math test', 
+        description: 'Completed your first algorithm test', 
         icon: '🎯',
         earned: true 
       });
     }
     
-    if (mathTestResults.length >= 5) {
+    if (algorithmTestResults.length >= 5) {
       achievements.push({ 
         title: 'Persistent Learner', 
-        description: 'Completed 5 math tests', 
+        description: 'Completed 5 algorithm tests', 
         icon: '📚',
         earned: true 
       });
@@ -181,7 +181,7 @@ const CheckLevel = () => {
     
     if (overallStats.bestScore >= 90) {
       achievements.push({ 
-        title: 'Math Expert', 
+        title: 'Algorithm Expert', 
         description: 'Scored 90% or higher', 
         icon: '🏆',
         earned: true 
@@ -197,20 +197,20 @@ const CheckLevel = () => {
       });
     }
     
-    if (mathTestResults.some(r => r.selectedLevel === 5 && r.percentage >= 70)) {
+    if (algorithmTestResults.some(r => r.selectedLevel === 'hard' && r.percentage >= 70)) {
       achievements.push({ 
-        title: 'Advanced Mathematics', 
-        description: 'Scored 70%+ on Level 5 test', 
+        title: 'Advanced Algorithms', 
+        description: 'Scored 70%+ on Hard level test', 
         icon: '🔬',
         earned: true 
       });
     }
     
     // Add some potential achievements
-    if (mathTestResults.length < 5) {
+    if (algorithmTestResults.length < 5) {
       achievements.push({ 
         title: 'Persistent Learner', 
-        description: 'Complete 5 math tests', 
+        description: 'Complete 5 algorithm tests', 
         icon: '📚',
         earned: false 
       });
@@ -218,8 +218,8 @@ const CheckLevel = () => {
     
     if (overallStats.bestScore < 90) {
       achievements.push({ 
-        title: 'Math Expert', 
-        description: 'Score 90% or higher', 
+        title: 'Algorithm Expert', 
+        description: 'Score 90% or higher on a test', 
         icon: '🏆',
         earned: false 
       });
@@ -246,7 +246,7 @@ const CheckLevel = () => {
 
   const achievements = getAchievements();
 
-  if (mathTestResults.length === 0) {
+  if (algorithmTestResults.length === 0) {
     return (
       <StyledContainer maxWidth="lg">
         <HeaderCard elevation={0}>
@@ -381,12 +381,12 @@ const CheckLevel = () => {
               )}
 
               <Stack spacing={2}>
-                {mathTestResults.slice(-5).reverse().map((result, index) => (
+                {algorithmTestResults.slice(-5).reverse().map((result, index) => (
                   <Box key={index} sx={{ p: 2, borderRadius: 2, bgcolor: 'rgba(255, 255, 255, 0.05)' }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
                       <Box>
                         <Typography variant="body1" fontWeight={600}>
-                          Level {result.selectedLevel} Test - {result.percentage}%
+                          {result.selectedLevel} Level Test - {result.percentage}%
                         </Typography>
                         <Typography variant="body2" sx={{ opacity: 0.7 }}>
                           {formatDate(result.date)}
@@ -486,7 +486,7 @@ const CheckLevel = () => {
           >
             <AccordionSummary expandIcon={<ExpandMore sx={{ color: 'white' }} />}>
               <Typography variant="h6" fontWeight={600}>
-                All Test Results ({mathTestResults.length} tests)
+                All Test Results ({algorithmTestResults.length} tests)
               </Typography>
             </AccordionSummary>
             <AccordionDetails>
@@ -502,13 +502,13 @@ const CheckLevel = () => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {mathTestResults.reverse().map((result, index) => (
+                    {algorithmTestResults.reverse().map((result, index) => (
                       <TableRow key={index}>
                         <TableCell sx={{ color: 'white' }}>
                           {formatDate(result.date)}
                         </TableCell>
                         <TableCell sx={{ color: 'white' }}>
-                          Level {result.selectedLevel}
+                          {result.selectedLevel}
                         </TableCell>
                         <TableCell sx={{ color: 'white' }}>
                           {result.correct}/{result.total} ({result.percentage}%)
