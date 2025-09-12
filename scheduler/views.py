@@ -73,6 +73,15 @@ except ImportError as e:
     LANGCHAIN_AVAILABLE = False
     print(f"❌ LangChain not available: {e}")
 
+# Import Gemini Client
+try:
+    from .gemini_client import GeminiClient
+    GEMINI_AVAILABLE = True
+    print("✅ Gemini client loaded successfully")
+except ImportError as e:
+    GEMINI_AVAILABLE = False
+    print(f"❌ Gemini client not available: {e}")
+
 # Global storage for user sessions
 user_conversation_memories = {}
 user_vector_stores = {}
@@ -301,6 +310,16 @@ AI Assistant:"""
 
 # Global RAG processor instance
 rag_processor = ComprehensiveRAGProcessor()
+
+# Global Gemini client instance
+gemini_client = None
+if GEMINI_AVAILABLE:
+    try:
+        gemini_client = GeminiClient()
+        print("✅ Gemini client initialized successfully")
+    except Exception as e:
+        print(f"❌ Failed to initialize Gemini client: {e}")
+        gemini_client = None
 
 class QuestionVariationGenerator:
     """
@@ -649,7 +668,7 @@ def process_document_background(document_id, file_path, document_type):
 
     except OllamaUnavailableError:
         document.processing_status = 'failed'
-        document.processing_error = 'OLLAMA_UNAVAILABLE'
+        document.processing_error = 'AI_UNAVAILABLE'  # Updated from OLLAMA_UNAVAILABLE
         document.save(update_fields=['processing_status','processing_error','updated_at'])
     except InsufficientQuestionsError as e:
         document.processing_status = 'failed'
@@ -661,32 +680,49 @@ def process_document_background(document_id, file_path, document_type):
         document.save(update_fields=['processing_status','processing_error','updated_at'])
 
 # Helper functions
-def get_simple_ollama_response(question: str) -> str:
-    """Fallback Ollama response without LangChain"""
-    print(f"DEBUG: get_simple_ollama_response called with question: '{question[:100]}...'")
+def get_simple_gemini_response(question: str, user=None) -> str:
+    """Fallback Gemini response for simple questions with memory support"""
+    print(f"DEBUG: get_simple_gemini_response called with question: '{question[:100]}...'")
     try:
-        data = {
-            "model": "llama3.2",
-            "prompt": question,
-            "stream": False
-        }
-        print(f"DEBUG: Sending request to Ollama API: {data}")
-        response = requests.post("http://localhost:11434/api/generate", json=data, timeout=30)
-        print(f"DEBUG: Ollama API response status: {response.status_code}")
+        global gemini_client
+        if not gemini_client:
+            return "AI service temporarily unavailable - Gemini not connected"
         
-        if response.status_code == 200:
-            response_data = response.json()
-            answer = response_data.get("response", "Sorry, I couldn't understand.")
-            print(f"DEBUG: Ollama API success, answer length: {len(answer)}")
-            print(f"DEBUG: Ollama API answer preview: {answer[:100]}...")
-            return answer
+        # אם יש משתמש, נקרא את ההיסטוריה
+        chat_history = []
+        if user:
+            try:
+                recent_chats = ChatInteraction.objects.filter(
+                    student=user
+                ).order_by('-created_at')[:3]  # 3 שיחות אחרונות
+                
+                for chat in reversed(recent_chats):
+                    chat_history.append({
+                        'user': chat.question,
+                        'assistant': chat.answer
+                    })
+                print(f"DEBUG: Simple response with {len(chat_history)} history items")
+            except Exception as e:
+                print(f"DEBUG: Failed to retrieve history in simple response: {e}")
+        
+        response = gemini_client.chat_response(question, chat_history=chat_history)
+        
+        if response:
+            print(f"DEBUG: Gemini API success, answer length: {len(response)}")
+            print(f"DEBUG: Gemini API answer preview: {response[:100]}...")
+            return response
         else:
-            print(f"DEBUG: Ollama API failed with status {response.status_code}")
-            print(f"DEBUG: Ollama API response: {response.text}")
-            return "AI service temporarily unavailable"
+            print(f"DEBUG: Gemini API returned empty response")
+            return "Sorry, I couldn't understand your question. Please try rephrasing it."
+            
     except Exception as e:
-        print(f"DEBUG: Ollama API exception: {e}")
+        print(f"DEBUG: Gemini API exception: {e}")
         return f"AI service error: {str(e)}"
+
+def get_simple_ollama_response(question: str) -> str:
+    """Legacy Ollama response - now redirects to Gemini"""
+    print(f"DEBUG: Legacy OLLAMA function called, redirecting to Gemini")
+    return get_simple_gemini_response(question, user=None)
 
 def get_conversation_context(user_id: int, limit: int = 3) -> str:
     """Get recent conversation context from database"""
@@ -875,12 +911,12 @@ def handle_exam_chat_interaction(user, student_answer, test_session_id):
         # 1) Generate questions if not already done
         if 'questions' not in notes or not notes['questions']:
             print("📚 Generating questions from teacher documents...")
-            result = _generate_exam_questions_from_docs(session, notes.get('level', 'intermediate'))
+            result = _generate_exam_questions_from_docs(user, notes.get('level', 'intermediate'))
             if 'error' in result:
                 return Response(result, status=400)
             
             notes['questions'] = result['questions']
-            notes['vector_store_id'] = result['vector_store_id']
+            notes['vector_store_id'] = result.get('vector_store_id', '')
             session.notes = json.dumps(notes)
             session.save()
             print(f"✅ Generated {len(notes['questions'])} questions")
@@ -1016,136 +1052,208 @@ def handle_exam_chat_interaction(user, student_answer, test_session_id):
 
 
 def _generate_exam_questions_from_docs(user, num_questions=10):
-    """Generate exam questions using RAG over teacher documents"""
+    """Generate exam questions using Gemini AI over TEACHER documents (not student documents)"""
     try:
-        print(f"🎯 Generating {num_questions} exam questions for user {user.id}")
+        from .models import Document
+        import time
+        import random
         
-        # Use global RAG processor
-        global rag_processor
-        if not rag_processor:
-            print("❌ RAG processor not available")
-            return []
+        print(f"🎯 Generating {num_questions} exam questions for student {user.username} using Gemini AI")
+        print(f"DEBUG: Looking for TEACHER documents, not student documents")
         
-        # Generate questions using RAG
-        query = f"""Generate {num_questions} diverse exam questions based on the uploaded course materials. 
-        Include a mix of difficulty levels (easy, medium, hard) and question types.
-        Each question should test understanding of key concepts from the documents.
+        # Get TEACHER documents only (not student documents)
+        teacher_documents = Document.objects.filter(
+            uploaded_by__role='teacher',  # Only teachers' documents
+            processing_status='completed',
+            extracted_text__isnull=False
+        ).exclude(extracted_text='').order_by('-created_at')[:5]  # Get recent teacher documents
         
-        Return a JSON array with this exact format:
-        [
-            {{
-                "question_text": "Question text here",
-                "question_type": "multiple_choice or open_ended",
-                "difficulty_level": "easy/medium/hard",
-                "subject": "topic name",
-                "options": {{"A": "option 1", "B": "option 2", "C": "option 3", "D": "option 4"}},
-                "correct_answer": "A or correct text",
-                "explanation": "Why this is correct"
-            }}
-        ]"""
+        print(f"DEBUG: Found {teacher_documents.count()} teacher documents for question generation")
         
-        result = rag_processor.query_with_rag(query, user_id=user.id)
-        response_text = result.get('response', '')
+        if not teacher_documents.exists():
+            print("❌ No teacher documents found!")
+            return {'error': 'No teacher documents available for generating questions. Teachers must upload course materials first.'}
         
-        # Extract JSON from response
-        import json
+        # Show which teacher documents we're using
+        for doc in teacher_documents:
+            print(f"DEBUG: Using teacher document: '{doc.title}' by teacher {doc.uploaded_by.username}")
+        
+        # Use global Gemini client
+        global gemini_client
+        if not gemini_client:
+            print("❌ Gemini client not available")
+            return {'error': 'Gemini AI service not available'}
+        
+        # Combine all teacher documents
+        combined_texts = []
+        source_docs = []
+        
+        for doc in teacher_documents:
+            if doc.extracted_text and len(doc.extracted_text.strip()) > 100:
+                combined_texts.append(f"[Teacher Document: {doc.title}]\n{doc.extracted_text}")
+                source_docs.append({
+                    'id': doc.id,
+                    'title': doc.title,
+                    'teacher': doc.uploaded_by.username
+                })
+        
+        if not combined_texts:
+            return {'error': 'No suitable teacher documents found with sufficient content'}
+        
+        # Create context from teacher documents
+        combined_text = "\n\n===DOCUMENT SEPARATOR===\n\n".join(combined_texts)
+        
+        print(f"✅ Prepared context from {len(combined_texts)} teacher documents")
+        
+        # Generate questions using Gemini
         try:
-            start_idx = response_text.find('[')
-            end_idx = response_text.rfind(']') + 1
-            if start_idx != -1 and end_idx != 0:
-                json_str = response_text[start_idx:end_idx]
-                questions = json.loads(json_str)
-                print(f"✅ Generated {len(questions)} questions successfully")
-                return questions
-        except:
-            pass
+            questions = gemini_client.generate_questions(
+                context=combined_text,
+                num_questions=num_questions,
+                topic="course_content",
+                difficulty_mix=True
+            )
+            
+            if questions:
+                print(f"✅ Generated {len(questions)} questions using Gemini AI")
+                
+                return {
+                    'questions': questions[:num_questions],  # Ensure we don't exceed requested number
+                    'source_documents': source_docs,
+                    'generation_method': 'gemini_ai_teacher_documents',
+                    'teacher_documents_used': len(source_docs)
+                }
+            else:
+                # Fallback if Gemini fails
+                print("⚠️ Gemini generation failed, creating fallback questions...")
+                questions = []
+                
+                # Create sample questions based on teacher documents
+                for i in range(min(num_questions, len(combined_texts))):
+                    doc_text = combined_texts[i]
+                    
+                    # Extract first meaningful sentence from document
+                    sentences = doc_text.split('.')[:3]
+                    content_preview = '. '.join(sentences).strip()
+                    if len(content_preview) > 300:
+                        content_preview = content_preview[:300] + "..."
+                    
+                    # Create question based on actual document content
+                    if i % 2 == 0:  # Multiple choice
+                        questions.append({
+                            'id': f"teacher_doc_q_{i+1}",
+                            'question_text': f"Based on the course material: {content_preview} - What is the main concept being discussed?",
+                            'question_type': 'multiple_choice',
+                            'difficulty_level': random.choice(['easy', 'medium', 'hard']),
+                            'subject': 'course_content',
+                            'options': {
+                                'A': f"Concept A related to the material",
+                                'B': f"Concept B related to the material", 
+                                'C': f"Concept C related to the material",
+                                'D': f"Concept D related to the material"
+                            },
+                            'correct_answer': 'B',
+                            'explanation': f"Based on the teacher's document: {source_docs[i % len(source_docs)]['title']}"
+                        })
+                    else:  # Open-ended
+                        questions.append({
+                            'id': f"teacher_doc_q_{i+1}",
+                            'question_text': f"Explain the concept discussed in: {content_preview}",
+                            'question_type': 'open_ended',
+                            'difficulty_level': random.choice(['medium', 'hard']),
+                            'subject': 'course_content',
+                            'correct_answer': f"Answer should be based on the content from {source_docs[i % len(source_docs)]['title']}",
+                            'explanation': f"This question tests understanding of material from teacher document: {source_docs[i % len(source_docs)]['title']}"
+                        })
+                
+                # Fill remaining questions if needed
+                while len(questions) < num_questions:
+                    doc_idx = len(questions) % len(source_docs)
+                    questions.append({
+                        'id': f"teacher_doc_q_{len(questions)+1}",
+                        'question_text': f"Question {len(questions)+1}: According to the teacher's course material '{source_docs[doc_idx]['title']}', explain a key concept covered.",
+                        'question_type': 'open_ended',
+                        'difficulty_level': 'medium',
+                        'subject': 'course_content',
+                        'correct_answer': f"Answer should reference content from {source_docs[doc_idx]['title']}",
+                        'explanation': f"Based on teacher document: {source_docs[doc_idx]['title']}"
+                    })
+                
+                print(f"✅ Generated {len(questions)} fallback questions from teacher documents")
+                
+                return {
+                    'questions': questions[:num_questions],
+                    'source_documents': source_docs,
+                    'generation_method': 'fallback_teacher_documents',
+                    'teacher_documents_used': len(source_docs)
+                }
         
-        # Fallback: parse manually or return default
-        print("⚠️ Could not parse generated questions, using fallback")
-        return []
+        except Exception as gemini_error:
+            print(f"❌ Gemini question generation error: {gemini_error}")
+            return {'error': f'Failed to generate questions with Gemini: {str(gemini_error)}'}
+        
+        print(f"📚 Source documents: {[doc['title'] for doc in source_docs]}")
         
     except Exception as e:
         print(f"❌ Question generation error: {e}")
-        return []
+        import traceback
+        traceback.print_exc()
+        return {'error': f'Failed to generate questions from teacher documents: {str(e)}'}
 
 
 def _eval_answer_with_llm(question_data, student_answer, attempt_num):
-    """Evaluate student answer using LLM"""
+    """Evaluate student answer using Gemini AI"""
     try:
-        global rag_processor
-        if not rag_processor:
-            return {'correct': False, 'explanation': 'Evaluation system unavailable'}
+        global gemini_client
+        if not gemini_client:
+            return {'correct': False, 'explanation': 'Evaluation system unavailable - Gemini not connected'}
         
-        prompt = f"""Evaluate this student's answer to the exam question:
-
-Question: {question_data['question_text']}
-Correct Answer: {question_data['correct_answer']}
-Student Answer: {student_answer}
-Attempt Number: {attempt_num}
-
-Please evaluate if the student's answer is correct, partially correct, or incorrect.
-Consider semantic meaning, not just exact text matching.
-
-Return a JSON response with this format:
-{{
-    "correct": true/false,
-    "score": 0.0-1.0,
-    "explanation": "detailed explanation of correctness",
-    "feedback": "constructive feedback for the student",
-    "canonical_answer": "the expected answer format"
-}}"""
+        # Use Gemini to evaluate the answer
+        evaluation = gemini_client.evaluate_answer(
+            question=question_data['question_text'],
+            correct_answer=question_data['correct_answer'],
+            student_answer=student_answer,
+            attempt_number=attempt_num
+        )
         
-        result = rag_processor.query_with_rag(prompt, user_id=None)
-        response = result.get('response', '')
-        
-        # Try to parse JSON response
-        import json
-        try:
-            start_idx = response.find('{')
-            end_idx = response.rfind('}') + 1
-            if start_idx != -1 and end_idx != 0:
-                json_str = response[start_idx:end_idx]
-                eval_result = json.loads(json_str)
-                return eval_result
-        except:
-            pass
-        
-        # Fallback evaluation
-        return {
-            'correct': False,
-            'score': 0.0,
-            'explanation': 'Could not evaluate answer automatically',
-            'feedback': 'Please review with your teacher',
-            'canonical_answer': question_data['correct_answer']
-        }
+        if evaluation:
+            return evaluation
+        else:
+            # Fallback evaluation
+            return {
+                'correct': False,
+                'score': 0.0,
+                'explanation': 'Could not evaluate answer with Gemini AI',
+                'feedback': 'Please review with your teacher',
+                'canonical_answer': question_data['correct_answer']
+            }
         
     except Exception as e:
         print(f"❌ Answer evaluation error: {e}")
-        return {'correct': False, 'explanation': f'Evaluation error: {e}'}
+        return {
+            'correct': False, 
+            'score': 0.0,
+            'explanation': f'Evaluation error: {e}',
+            'feedback': 'Please review with your teacher',
+            'canonical_answer': question_data['correct_answer']
+        }
 
 
 def _make_hint(question_data, attempt_num):
-    """Generate a hint for the current question"""
+    """Generate a hint for the current question using Gemini AI"""
     try:
-        global rag_processor
-        if not rag_processor:
+        global gemini_client
+        if not gemini_client:
             return "Hint system unavailable. Try reviewing the course materials."
         
         hint_level = "gentle" if attempt_num == 1 else "moderate" if attempt_num == 2 else "strong"
         
-        prompt = f"""Generate a {hint_level} hint for this exam question:
-
-Question: {question_data['question_text']}
-Correct Answer: {question_data['correct_answer']}
-Attempt Number: {attempt_num}/3
-
-Provide a helpful hint that guides the student toward the correct answer without giving it away completely.
-The hint should be appropriate for attempt #{attempt_num}.
-
-Return just the hint text, no JSON formatting needed."""
-        
-        result = rag_processor.query_with_rag(prompt, user_id=None)
-        hint_text = result.get('response', '').strip()
+        hint_text = gemini_client.generate_hint(
+            question=question_data['question_text'],
+            correct_answer=question_data['correct_answer'],
+            attempt_number=attempt_num,
+            hint_level=hint_level
+        )
         
         return hint_text or f"💡 Hint {attempt_num}: Review the key concepts related to this topic in your course materials."
         
@@ -1155,26 +1263,16 @@ Return just the hint text, no JSON formatting needed."""
 
 
 def _make_reveal(question_data):
-    """Generate explanation when revealing the correct answer"""
+    """Generate explanation when revealing the correct answer using Gemini AI"""
     try:
-        global rag_processor
-        if not rag_processor:
+        global gemini_client
+        if not gemini_client:
             return f"The correct answer is: {question_data['correct_answer']}\n\n{question_data.get('explanation', 'No explanation available.')}"
         
-        prompt = f"""Provide a clear explanation for this exam question and its correct answer:
-
-Question: {question_data['question_text']}
-Correct Answer: {question_data['correct_answer']}
-
-Give a comprehensive explanation of:
-1. Why this answer is correct
-2. Key concepts involved
-3. How to approach similar questions
-
-Make it educational and helpful for the student."""
-        
-        result = rag_processor.query_with_rag(prompt, user_id=None)
-        explanation = result.get('response', '').strip()
+        explanation = gemini_client.explain_answer(
+            question=question_data['question_text'],
+            correct_answer=question_data['correct_answer']
+        )
         
         if explanation:
             return f"📚 **Correct Answer:** {question_data['correct_answer']}\n\n**Explanation:**\n{explanation}"
@@ -1276,9 +1374,10 @@ class LessonViewSet(viewsets.ModelViewSet):
 @permission_classes([IsAuthenticated])
 def chat_interaction(request):
     """
-    🤖 Main chat endpoint with comprehensive RAG support + Image OCR
+    🤖 Main chat endpoint with Gemini AI + comprehensive features
     
     Features:
+    - Gemini AI responses
     - Math solving (SymPy)
     - Document upload and Q&A
     - Image OCR processing
@@ -1292,17 +1391,21 @@ def chat_interaction(request):
     
     if request.method == 'GET':
         return Response({
-            "message": "Comprehensive Educational Chat API with Image Support",
+            "message": "Comprehensive Educational Chat API with Gemini 2.5 Flash AI + Image Support",
             "features": {
+                "gemini_ai": "✅ Google Gemini 2.5 Flash (Latest)" if GEMINI_AVAILABLE else "❌ Gemini not available",
+                "thinking_capabilities": "✅ Adaptive thinking and reasoning",
                 "math_solving": "✅ SymPy integration",
-                "document_qa": "✅ PDF upload and analysis" if LANGCHAIN_AVAILABLE else "❌ LangChain required",
+                "document_qa": "✅ PDF upload and analysis with Gemini 2.5",
                 "image_ocr": "✅ Image text extraction with OCR",
-                "vector_search": "✅ Semantic document search" if LANGCHAIN_AVAILABLE else "❌ LangChain required",
-                "conversation_memory": "✅ Context-aware responses" if LANGCHAIN_AVAILABLE else "❌ LangChain required",
-                "multi_document": "✅ Query multiple documents" if LANGCHAIN_AVAILABLE else "❌ LangChain required"
+                "context_awareness": "✅ Document context analysis with Gemini",
+                "conversation_memory": "✅ Chat history support",
+                "multi_document": "✅ Query multiple documents with Gemini",
+                "fallback_rag": "✅ LangChain RAG fallback" if LANGCHAIN_AVAILABLE else "❌ No fallback available"
             },
             "supported_formats": ["PDF", "Text", "Images (JPG, PNG, GIF, BMP)"],
-            "langchain_status": "✅ Available" if LANGCHAIN_AVAILABLE else "❌ Not installed"
+            "ai_provider": "Google Gemini 2.5 Flash (Latest)" if GEMINI_AVAILABLE else "Not available",
+            "langchain_status": "✅ Available for fallback" if LANGCHAIN_AVAILABLE else "❌ Not installed"
         })
     
     # Extract request data - Handle both form data (with images) and JSON
@@ -1576,21 +1679,68 @@ def chat_interaction(request):
                             f"combined_{user.id}_{int(time.time())}"
                         )
                         
-                        if vectorstore:
+                        # Use Gemini for document-based Q&A instead of RAG
+                        if combined_texts:
                             # Get conversation context
                             conversation_context = get_conversation_context(user.id)
                             
-                            # Query with RAG
-                            answer = rag_processor.query_with_rag(
-                                vectorstore, 
-                                question, 
-                                conversation_context
-                            )
+                            # Create enhanced prompt with document context for Gemini
+                            enhanced_prompt = f"""Based on the following documents: {', '.join([doc['title'] for doc in used_docs])}
+
+Document Content:
+{combined_text}
+
+Previous conversation context:
+{conversation_context}
+
+User Question: {question}
+
+Please provide a comprehensive answer based on the document content above. Focus on information that is explicitly mentioned in the documents."""
+                            
+                            if GEMINI_AVAILABLE and gemini_client:
+                                # קריאת היסטוריית השיחה למסמכים
+                                try:
+                                    recent_chats = ChatInteraction.objects.filter(
+                                        student=user
+                                    ).order_by('-created_at')[:5]
+                                    
+                                    chat_history = []
+                                    for chat in reversed(recent_chats):
+                                        chat_history.append({
+                                            'user': chat.question,
+                                            'assistant': chat.answer
+                                        })
+                                    
+                                    print(f"DEBUG: Document analysis with {len(chat_history)} conversation history items")
+                                except Exception as e:
+                                    print(f"DEBUG: Failed to retrieve chat history for documents: {e}")
+                                    chat_history = []
+                                
+                                answer = gemini_client.chat_response(
+                                    enhanced_prompt,
+                                    context="",
+                                    chat_history=chat_history
+                                )
+                                response_data["features_used"].extend(["Gemini Document Analysis", "Context Awareness", "Conversation Memory"])
+                            else:
+                                # Fallback to RAG if Gemini unavailable
+                                vectorstore = rag_processor.create_vector_store(
+                                    combined_text, 
+                                    f"combined_{user.id}_{int(time.time())}"
+                                )
+                                if vectorstore:
+                                    answer = rag_processor.query_with_rag(
+                                        vectorstore, 
+                                        question, 
+                                        conversation_context
+                                    )
+                                    response_data["features_used"].extend(["RAG Document Search", "Vector Similarity"])
+                                else:
+                                    answer = "Sorry, I couldn't process the documents to answer your question."
                             
                             response_data["answer"] = answer
-                            response_data["source"] = "document_rag"
+                            response_data["source"] = "document_analysis"
                             response_data["documents_used"] = used_docs
-                            response_data["features_used"].extend(["RAG Document Search", "Vector Similarity"])
                             
                         else:
                             # Fallback to simple text search
@@ -1733,24 +1883,49 @@ def chat_interaction(request):
                                         f"auto_selected_{user.id}_{int(time.time())}"
                                     )
                                     
-                                    if vectorstore:
+                                    # Use Gemini for auto-selected document analysis
+                                    if combined_texts:
                                         # Get conversation context
                                         conversation_context = get_conversation_context(user.id)
                                         
-                                        # Query with RAG
-                                        answer = rag_processor.query_with_rag(
-                                            vectorstore, 
-                                            question, 
-                                            conversation_context
-                                        )
+                                        # Create enhanced prompt with document context for Gemini
+                                        enhanced_prompt = f"""Based on the auto-selected document: {best_doc.title}
+
+Document Content:
+{combined_text}
+
+Previous conversation context:
+{conversation_context}
+
+User Question: {question}
+
+Please provide a comprehensive answer based on the document content above. The system automatically selected this document as relevant to the user's question."""
+                                        
+                                        if GEMINI_AVAILABLE and gemini_client:
+                                            answer = gemini_client.chat_response(enhanced_prompt)
+                                            response_data["features_used"].extend(["Gemini Document Analysis", "Auto Document Detection", "Context Awareness"])
+                                        else:
+                                            # Fallback to RAG if Gemini unavailable
+                                            vectorstore = rag_processor.create_vector_store(
+                                                combined_text, 
+                                                f"auto_selected_{user.id}_{int(time.time())}"
+                                            )
+                                            if vectorstore:
+                                                answer = rag_processor.query_with_rag(
+                                                    vectorstore, 
+                                                    question, 
+                                                    conversation_context
+                                                )
+                                                response_data["features_used"].extend(["RAG Document Search", "Vector Similarity", "Auto Document Detection"])
+                                            else:
+                                                answer = "Sorry, I couldn't process the auto-selected document to answer your question."
                                         
                                         response_data["answer"] = answer
-                                        response_data["source"] = "document_rag"
+                                        response_data["source"] = "document_auto_analysis"
                                         response_data["documents_used"] = used_docs
-                                        response_data["features_used"].extend(["RAG Document Search", "Vector Similarity", "Auto Document Detection"])
                                         
                                         # Skip to the end
-                                        print(f"DEBUG: Successfully processed with auto-selected document")
+                                        print(f"DEBUG: Successfully processed with auto-selected document using Gemini")
                                         
                                     else:
                                         # Fallback to simple text search
@@ -1799,15 +1974,47 @@ def chat_interaction(request):
 
 IMPORTANT: Use the document content above to answer the user's question. If they ask about "questions" or "problems" in the document, look for mathematical equations, problems, or questions in the document content and solve/explain them. Do not make up generic answers - use only what's actually in the document."""
                     
-                    if LANGCHAIN_AVAILABLE:
-                        print(f"DEBUG: Using LangChain memory chat")
+                    # Use Gemini for chat responses (with memory support)
+                    if GEMINI_AVAILABLE and gemini_client:
+                        print(f"DEBUG: Using Gemini AI chat response with conversation history")
+                        
+                        # קריאת היסטוריית השיחה האחרונה
+                        try:
+                            recent_chats = ChatInteraction.objects.filter(
+                                student=user
+                            ).order_by('-created_at')[:5]  # 5 שיחות אחרונות
+                            
+                            chat_history = []
+                            for chat in reversed(recent_chats):
+                                chat_history.append({
+                                    'user': chat.question,
+                                    'assistant': chat.answer
+                                })
+                            
+                            print(f"DEBUG: Retrieved {len(chat_history)} previous conversations for context")
+                        except Exception as e:
+                            print(f"DEBUG: Failed to retrieve chat history: {e}")
+                            chat_history = []
+                        
+                        # קריאה ל-Gemini עם היסטוריה
+                        answer = gemini_client.chat_response(
+                            enhanced_question, 
+                            context=document_context or "", 
+                            chat_history=chat_history
+                        )
+                        response_data["features_used"].append("Gemini AI Chat")
+                        response_data["features_used"].append("Conversation Memory")
+                        if document_context:
+                            response_data["features_used"].append("Automatic Document Context")
+                    elif LANGCHAIN_AVAILABLE:
+                        print(f"DEBUG: Fallback to LangChain memory chat")
                         answer = rag_processor.chat_with_memory(user.id, enhanced_question)
                         response_data["features_used"].append("Conversation Memory")
                         if document_context:
                             response_data["features_used"].append("Automatic Document Context")
                     else:
-                        print(f"DEBUG: Using simple Ollama response")
-                        answer = get_simple_ollama_response(enhanced_question)
+                        print(f"DEBUG: Using simple fallback response")
+                        answer = get_simple_gemini_response(enhanced_question, user)
                         if document_context:
                             response_data["features_used"].append("Automatic Document Context")
                     
@@ -3277,7 +3484,7 @@ def start_exam_chat(request, exam_id):
             student=request.user,
             exam=ex,
             test_type='exam',
-            session_complete=False
+            is_completed=False
         ).first()
         
         if existing_session:
@@ -3564,7 +3771,9 @@ def get_exam_results(request, test_session_id):
 @permission_classes([IsAuthenticated])
 def submit_interactive_exam_answer(request):
     """
-    🎯 Improved Interactive Learning Flow with OLAMA Integration
+    🎯 Interactive Exam Answer Submission with 3-Attempt System and Hints
+    
+    This function handles both ChatSession-based and ExamSession-based interactive exams.
     
     Flow:
     1. Student submits answer
@@ -3572,7 +3781,7 @@ def submit_interactive_exam_answer(request):
     3. If correct: Store answer, move to next question
     4. If incorrect: 
        - Track attempt count
-       - If attempts < MAX_ATTEMPTS: Generate OLAMA hint
+       - If attempts < MAX_ATTEMPTS: Generate hint
        - If attempts >= MAX_ATTEMPTS: Reveal answer, move to next
     """
     if request.user.role != 'student':
@@ -3582,26 +3791,228 @@ def submit_interactive_exam_answer(request):
     MAX_ATTEMPTS = 3  # Allow 3 attempts per question
     
     try:
-        from .serializers import InteractiveExamAnswerSerializer, InteractiveExamResponseSerializer
         import json
+        from .models import ChatSession, ExamSession
         
-        # Validate and process the submission
-        serializer = InteractiveExamAnswerSerializer(data=request.data, context={'request': request})
+        # Get request data
+        exam_session_id = request.data.get('exam_session_id')
+        question_id = request.data.get('question_id')
+        answer_text = request.data.get('answer_text', '').strip()
+        time_taken = request.data.get('time_taken_seconds')
         
-        if not serializer.is_valid():
+        if not exam_session_id or not answer_text:
             return Response({
                 'status': 'error',
-                'errors': serializer.errors
+                'message': 'exam_session_id and answer_text are required'
             }, status=400)
         
-        validated_data = serializer.validated_data
-        exam_session = validated_data['exam_session_obj']
-        question = validated_data['question_obj']
-        student = validated_data['student']
-        answer_text = validated_data['answer_text']
-        time_taken = validated_data.get('time_taken_seconds')
+        # Try to get as ChatSession first (new interactive exam format)
+        try:
+            session = ChatSession.objects.get(id=exam_session_id, student=request.user)
+            metadata = session.get_session_metadata()
+            
+            if metadata.get('is_interactive_exam'):
+                # This is a chat-based interactive exam
+                return handle_chat_session_answer(session, metadata, question_id, answer_text, time_taken, MAX_ATTEMPTS)
+            else:
+                return Response({
+                    'status': 'error',
+                    'message': 'This is not an interactive exam session'
+                }, status=400)
+                
+        except ChatSession.DoesNotExist:
+            # Fall back to ExamSession (legacy format)
+            try:
+                exam_session = ExamSession.objects.get(id=exam_session_id)
+                return handle_exam_session_answer(exam_session, question_id, answer_text, time_taken, MAX_ATTEMPTS, request.user)
+                
+            except ExamSession.DoesNotExist:
+                return Response({
+                    'status': 'error',
+                    'message': 'Exam session not found'
+                }, status=404)
         
-        # Get current attempt count for this student/question
+    except Exception as e:
+        print(f"Error in interactive exam answer submission: {e}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to process answer: {str(e)}'
+        }, status=500)
+
+
+def handle_chat_session_answer(session, metadata, question_id, answer_text, time_taken, max_attempts):
+    """Handle answer submission for ChatSession-based interactive exams"""
+    import json
+    from .models import Document
+    
+    try:
+        # Restore exam session
+        exam_session = InteractiveExamSession.from_dict(metadata['exam_session'])
+        
+        # Get current question
+        current_question = exam_session.questions[exam_session.current_question_index]
+        question_key = str(exam_session.current_question_index)
+        question_state = exam_session.question_states.get(question_key, {})
+        
+        # Get current attempt count
+        attempts = question_state.get('answers', [])
+        attempt_number = len(attempts) + 1
+        
+        # Evaluate answer correctness
+        is_correct = evaluate_chat_answer_correctness(current_question, answer_text)
+        
+        # Store the attempt
+        attempt_data = {
+            'answer': answer_text,
+            'is_correct': is_correct,
+            'timestamp': timezone.now().isoformat(),
+            'time_taken': time_taken
+        }
+        
+        if is_correct:
+            # ✅ CORRECT ANSWER: Move to next question
+            attempts.append(attempt_data)
+            question_state['answers'] = attempts
+            question_state['isCorrect'] = True
+            exam_session.question_states[question_key] = question_state
+            exam_session.total_correct += 1
+            
+            # Move to next question
+            exam_session.current_question_index += 1
+            
+            # Update session metadata
+            metadata['exam_session'] = exam_session.to_dict()
+            session.set_session_metadata(metadata)
+            session.save()
+            
+            if exam_session.current_question_index >= len(exam_session.questions):
+                # Exam completed
+                final_score = calculate_chat_exam_score(exam_session)
+                return Response({
+                    'status': 'completed',
+                    'message': 'Congratulations! You have completed the exam.',
+                    'final_score': final_score,
+                    'progress': {
+                        'answered_questions': exam_session.current_question_index,
+                        'total_questions': len(exam_session.questions),
+                        'progress_percentage': 100.0,
+                        'is_completed': True
+                    }
+                })
+            else:
+                # Get next question
+                next_question = exam_session.questions[exam_session.current_question_index]
+                return Response({
+                    'status': 'correct',
+                    'message': 'Correct! Well done. Moving to the next question.',
+                    'next_question': {
+                        'id': exam_session.current_question_index,
+                        'question_text': next_question['question'],
+                        'question_type': 'short_answer',
+                        'correct_answer': next_question['correct_answer']
+                    },
+                    'progress': {
+                        'answered_questions': exam_session.current_question_index,
+                        'total_questions': len(exam_session.questions),
+                        'progress_percentage': (exam_session.current_question_index / len(exam_session.questions)) * 100,
+                        'is_completed': False
+                    }
+                })
+        
+        else:
+            # ❌ INCORRECT ANSWER: Check attempt count
+            attempts.append(attempt_data)
+            question_state['answers'] = attempts
+            exam_session.question_states[question_key] = question_state
+            
+            if attempt_number < max_attempts:
+                # Generate hint
+                hint = generate_chat_hint(current_question, answer_text, attempt_number, metadata)
+                attempt_data['hint'] = hint
+                
+                # Update session metadata
+                metadata['exam_session'] = exam_session.to_dict()
+                session.set_session_metadata(metadata)
+                session.save()
+                
+                return Response({
+                    'status': 'hint',
+                    'message': f'Not quite right. Here\'s a hint to help you:',
+                    'hint': hint,
+                    'attempt_number': attempt_number,
+                    'max_attempts': max_attempts,
+                    'attempts_remaining': max_attempts - attempt_number
+                })
+            
+            else:
+                # Max attempts reached - reveal answer and move on
+                exam_session.current_question_index += 1
+                
+                # Update session metadata
+                metadata['exam_session'] = exam_session.to_dict()
+                session.set_session_metadata(metadata)
+                session.save()
+                
+                if exam_session.current_question_index >= len(exam_session.questions):
+                    # Exam completed
+                    final_score = calculate_chat_exam_score(exam_session)
+                    return Response({
+                        'status': 'completed',
+                        'message': f'Exam completed! The correct answer to the last question was: {current_question["correct_answer"]}',
+                        'correct_answer': current_question['correct_answer'],
+                        'final_score': final_score,
+                        'progress': {
+                            'answered_questions': exam_session.current_question_index,
+                            'total_questions': len(exam_session.questions),
+                            'progress_percentage': 100.0,
+                            'is_completed': True
+                        }
+                    })
+                else:
+                    # Get next question
+                    next_question = exam_session.questions[exam_session.current_question_index]
+                    return Response({
+                        'status': 'reveal',
+                        'message': f'Maximum attempts reached. The correct answer was: {current_question["correct_answer"]}',
+                        'correct_answer': current_question['correct_answer'],
+                        'next_question': {
+                            'id': exam_session.current_question_index,
+                            'question_text': next_question['question'],
+                            'question_type': 'short_answer',
+                            'correct_answer': next_question['correct_answer']
+                        },
+                        'progress': {
+                            'answered_questions': exam_session.current_question_index,
+                            'total_questions': len(exam_session.questions),
+                            'progress_percentage': (exam_session.current_question_index / len(exam_session.questions)) * 100,
+                            'is_completed': False
+                        }
+                    })
+                    
+    except Exception as e:
+        print(f"Error handling chat session answer: {e}")
+        return Response({
+            'status': 'error',
+            'message': f'Failed to process answer: {str(e)}'
+        }, status=500)
+
+
+def handle_exam_session_answer(exam_session, question_id, answer_text, time_taken, max_attempts, student):
+    """Handle answer submission for ExamSession-based interactive exams (legacy)"""
+    import json
+    from .models import QuestionBank, ExamAnswerAttempt, StudentAnswer
+    
+    try:
+        # Get question
+        try:
+            question = QuestionBank.objects.get(id=question_id)
+        except QuestionBank.DoesNotExist:
+            return Response({
+                'status': 'error',
+                'message': 'Question not found'
+            }, status=404)
+        
+        # Get current attempt count
         existing_attempts = ExamAnswerAttempt.objects.filter(
             exam_session=exam_session,
             student=student,
@@ -3632,8 +4043,6 @@ def submit_interactive_exam_answer(request):
         
         if is_correct:
             # ✅ CORRECT ANSWER: Store final answer and move to next question
-            
-            # Store in main StudentAnswer table
             StudentAnswer.objects.create(
                 exam_session=exam_session,
                 question=question,
@@ -3652,31 +4061,28 @@ def submit_interactive_exam_answer(request):
             next_question_data = get_next_exam_question(exam_session, student)
             
             if next_question_data:
-                response_data = {
+                return Response({
                     'status': 'correct',
                     'message': f'Correct! Well done. Moving to the next question.',
                     'attempt_number': attempt_number,
                     'next_question': next_question_data,
                     'progress': get_exam_progress_data(exam_session, student)
-                }
+                })
             else:
                 # Exam completed
                 final_score = calculate_final_exam_score(exam_session, student)
-                response_data = {
+                return Response({
                     'status': 'completed',
                     'message': 'Congratulations! You have completed the exam.',
                     'exam_completed': True,
                     'final_score': final_score,
                     'progress': get_exam_progress_data(exam_session, student)
-                }
-            
-            return Response(response_data)
+                })
         
         else:
             # ❌ INCORRECT ANSWER: Check attempt count and decide next action
-            
-            if attempt_number < MAX_ATTEMPTS:
-                # Generate OLAMA hint
+            if attempt_number < max_attempts:
+                # Generate hint
                 hint = generate_olama_hint(question, answer_text, attempt_number)
                 
                 # Store hint in attempt record
@@ -3688,14 +4094,12 @@ def submit_interactive_exam_answer(request):
                     'message': f'Not quite right. Here\'s a hint to help you:',
                     'hint': hint,
                     'attempt_number': attempt_number,
-                    'max_attempts': MAX_ATTEMPTS,
-                    'attempts_remaining': MAX_ATTEMPTS - attempt_number
+                    'max_attempts': max_attempts,
+                    'attempts_remaining': max_attempts - attempt_number
                 })
             
             else:
                 # Max attempts reached - reveal answer and move on
-                
-                # Store final attempt in main StudentAnswer table
                 StudentAnswer.objects.create(
                     exam_session=exam_session,
                     question=question,
@@ -3715,34 +4119,318 @@ def submit_interactive_exam_answer(request):
                 next_question_data = get_next_exam_question(exam_session, student)
                 
                 if next_question_data:
-                    response_data = {
+                    return Response({
                         'status': 'reveal',
                         'message': f'Maximum attempts reached. The correct answer was: {question.correct_answer}',
                         'correct_answer': question.correct_answer,
                         'attempt_number': attempt_number,
                         'next_question': next_question_data,
                         'progress': get_exam_progress_data(exam_session, student)
-                    }
+                    })
                 else:
                     # Exam completed
                     final_score = calculate_final_exam_score(exam_session, student)
-                    response_data = {
+                    return Response({
                         'status': 'completed',
                         'message': f'Exam completed! The correct answer to the last question was: {question.correct_answer}',
                         'correct_answer': question.correct_answer,
                         'exam_completed': True,
                         'final_score': final_score,
                         'progress': get_exam_progress_data(exam_session, student)
-                    }
-                
-                return Response(response_data)
-    
+                    })
+                    
     except Exception as e:
-        print(f"Error in interactive exam answer submission: {e}")
+        print(f"Error handling exam session answer: {e}")
         return Response({
             'status': 'error',
             'message': f'Failed to process answer: {str(e)}'
         }, status=500)
+
+
+def evaluate_chat_answer_correctness(question_data, answer_text):
+    """Evaluate if the student's answer is correct for chat-based questions"""
+    answer_text = answer_text.strip().lower()
+    correct_answer = question_data['correct_answer'].strip().lower()
+    
+    # Simple text matching - can be enhanced with more sophisticated matching
+    if answer_text == correct_answer:
+        return True
+    
+    # Check if answer contains key parts of the correct answer
+    correct_words = set(correct_answer.split())
+    answer_words = set(answer_text.split())
+    
+    # If 70% of correct words are present, consider it correct
+    if len(correct_words) > 0:
+        overlap = len(correct_words.intersection(answer_words))
+        if overlap / len(correct_words) >= 0.7:
+            return True
+    
+    return False
+
+
+def generate_chat_hint(question_data, answer_text, attempt_number, metadata):
+    """Generate a hint for chat-based questions"""
+    try:
+        # Use pre-computed hints if available
+        if 'hints' in question_data and attempt_number <= len(question_data['hints']):
+            return question_data['hints'][attempt_number - 1]
+        
+        # Generate contextual hint using Ollama
+        from .models import Document
+        
+        document = Document.objects.get(id=metadata['document_id'])
+        
+        prompt = f"""Based on this document content and the question, provide a helpful hint for attempt {attempt_number}.
+
+Document: {document.title}
+Question: {question_data['question']}
+Correct Answer: {question_data['correct_answer']}
+Student's Answer: {answer_text}
+
+Provide a hint that:
+1. Gently guides the student toward the correct answer
+2. Doesn't give away the answer directly
+3. Is appropriate for attempt {attempt_number} of 3
+4. References the document content when relevant
+
+Hint:"""
+
+        try:
+            # Use Gemini 2.0 Flash for hint generation
+            global gemini_client
+            if not gemini_client:
+                return f"Hint {attempt_number}: Consider the main concepts from the document."
+            
+            response = gemini_client.generate_content(prompt)
+            if response:
+                response_text = response.text if hasattr(response, 'text') else str(response)
+                if response_text:
+                    return response_text.strip()
+            
+            return f"Hint {attempt_number}: Consider the main concepts from the document."
+                
+        except Exception as e:
+            print(f"Error generating hint with Gemini: {e}")
+            return f"Hint {attempt_number}: Consider the main concepts from the document."
+            
+    except Exception as e:
+        print(f"Error in generate_chat_hint: {e}")
+        return f"Hint {attempt_number}: Consider the main concepts from the document."
+
+
+def calculate_chat_exam_score(exam_session):
+    """Calculate final score for chat-based exam"""
+    total_questions = len(exam_session.questions)
+    correct_answers = exam_session.total_correct
+    
+    score_percentage = (correct_answers / total_questions) * 100 if total_questions > 0 else 0
+    
+    # Calculate efficiency score based on attempts
+    total_attempts = sum(len(state.get('answers', [])) for state in exam_session.question_states.values())
+    efficiency_score = max(0, 100 - (total_attempts - total_questions) * 10) if total_questions > 0 else 0
+    
+    return {
+        'correct_answers': correct_answers,
+        'total_questions': total_questions,
+        'score_percentage': round(score_percentage, 1),
+        'efficiency_score': round(efficiency_score, 1),
+        'total_attempts': total_attempts
+    }
+
+
+def generate_questions_with_gemini(document_content, document_title, count=10):
+    """Generate questions from document using Gemini 2.0 Flash"""
+    try:
+        global gemini_client
+        if not gemini_client:
+            raise Exception("Gemini client not available")
+        
+        prompt = f"""Based on this document content, generate exactly {count} educational questions with open-ended answers (no multiple choice).
+
+Document Title: {document_title}
+Document Content: {document_content[:4000]}...
+
+For each question, provide:
+1. A clear, specific question
+2. The correct answer based on the document
+3. 3 progressively more specific hints
+4. Keywords that should be in a correct answer
+5. Question type (numeric, text, concept, etc.)
+
+Format each question as JSON:
+{{
+  "question": "What is...",
+  "correct_answer": "The answer is...",
+  "type": "text|numeric|concept",
+  "keywords": ["keyword1", "keyword2"],
+  "hints": [
+    "Hint 1: Think about...",
+    "Hint 2: Consider the relationship between...", 
+    "Hint 3: The answer involves..."
+  ],
+  "difficulty": "easy|medium|hard"
+}}
+
+Generate exactly {count} questions covering the most important concepts from the document. Return only the JSON array of questions."""
+
+        response = gemini_client.generate_content(prompt)
+        
+        if not response:
+            raise Exception("No response from Gemini")
+        
+        # Handle different response formats
+        response_text = response.text if hasattr(response, 'text') else str(response)
+        
+        if not response_text:
+            raise Exception("Empty response from Gemini")
+        
+        # Parse JSON questions from response
+        questions = parse_questions_from_gemini_response(response_text)
+        
+        if len(questions) >= count:
+            return questions[:count]
+        else:
+            # If we don't have enough questions, generate more
+            return ensure_question_count_with_gemini(questions, document_content, document_title, count)
+            
+    except Exception as e:
+        print(f"❌ Question generation with Gemini failed: {e}")
+        raise Exception(f"Unable to generate questions from document using Gemini: {str(e)}")
+
+
+def parse_questions_from_gemini_response(response_text):
+    """Parse JSON questions from Gemini response"""
+    import json
+    import re
+    
+    try:
+        # Clean the response text
+        cleaned_text = response_text.strip()
+        
+        # Remove markdown code blocks if present
+        cleaned_text = re.sub(r'^```json\s*', '', cleaned_text)
+        cleaned_text = re.sub(r'^```\s*', '', cleaned_text)
+        cleaned_text = re.sub(r'\s*```$', '', cleaned_text)
+        
+        cleaned_text = cleaned_text.strip()
+        
+        # Try to find JSON array in the response - look for opening [ and find matching ]
+        start_idx = cleaned_text.find('[')
+        if start_idx != -1:
+            # Find the matching closing bracket
+            bracket_count = 0
+            end_idx = start_idx
+            for i, char in enumerate(cleaned_text[start_idx:], start_idx):
+                if char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        end_idx = i + 1
+                        break
+            
+            if bracket_count == 0:
+                json_str = cleaned_text[start_idx:end_idx]
+                print(f"🔍 Extracted JSON length: {len(json_str)}")
+                print(f"🔍 JSON preview: {json_str[:200]}...")
+                
+                # Try to fix common JSON issues
+                json_str = fix_json_string(json_str)
+                questions = json.loads(json_str)
+                return questions
+            else:
+                print(f"❌ Could not find matching closing bracket. Count: {bracket_count}")
+        else:
+            print("❌ Could not find opening bracket")
+        
+        # Fallback: try to parse the entire response as JSON
+        cleaned_text = fix_json_string(cleaned_text)
+        questions = json.loads(cleaned_text)
+        return questions
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON from Gemini response: {e}")
+        print(f"Response text (first 500 chars): {response_text[:500]}")
+        # Fallback: try to extract questions manually
+        return extract_questions_manually(response_text)
+
+
+def fix_json_string(json_str):
+    """Fix common JSON formatting issues"""
+    import re
+    
+    # Remove trailing commas before closing brackets/braces
+    json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
+    
+    # Don't try to fix quotes - the JSON should be valid as-is
+    # The regex was too aggressive and breaking valid JSON
+    
+    return json_str
+
+
+def extract_questions_manually(response_text):
+    """Extract questions manually if JSON parsing fails"""
+    questions = []
+    lines = response_text.split('\n')
+    current_question = {}
+    
+    for line in lines:
+        line = line.strip()
+        if line.startswith('"question":'):
+            if current_question:
+                questions.append(current_question)
+            current_question = {
+                'question': line.split('"question":')[1].strip().strip('",'),
+                'correct_answer': '',
+                'type': 'text',
+                'keywords': [],
+                'hints': [],
+                'difficulty': 'medium'
+            }
+        elif line.startswith('"correct_answer":'):
+            current_question['correct_answer'] = line.split('"correct_answer":')[1].strip().strip('",')
+        elif line.startswith('"hints":'):
+            # Extract hints from the next few lines
+            hints = []
+            # This is a simplified extraction - in practice, you might need more sophisticated parsing
+            current_question['hints'] = hints
+    
+    if current_question:
+        questions.append(current_question)
+    
+    return questions
+
+
+def ensure_question_count_with_gemini(questions, document_content, document_title, count):
+    """Ensure we have enough questions by generating more if needed"""
+    if len(questions) >= count:
+        return questions[:count]
+    
+    # Generate additional questions
+    try:
+        global gemini_client
+        if not gemini_client:
+            return questions[:count]
+        
+        remaining = count - len(questions)
+        prompt = f"""Generate {remaining} more questions from this document content.
+
+Document Title: {document_title}
+Document Content: {document_content[:2000]}...
+
+Return only a JSON array of {remaining} questions in the same format as before."""
+
+        response = gemini_client.generate_content(prompt)
+        
+        if response and response.text:
+            additional_questions = parse_questions_from_gemini_response(response.text)
+            questions.extend(additional_questions)
+        
+        return questions[:count]
+        
+    except Exception as e:
+        print(f"Error generating additional questions: {e}")
+        return questions[:count]
 
 
 def evaluate_answer_correctness(question, answer_text):
@@ -3898,49 +4586,114 @@ def calculate_final_exam_score(exam_session, student):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_interactive_exam_progress(request, exam_session_id):
-    """Get current progress of an interactive exam session"""
+    """
+    Get current progress of an interactive exam session
+    
+    This function handles both ChatSession-based and ExamSession-based interactive exams
+    """
     if request.user.role != 'student':
         return Response({'error': 'Only students can check exam progress'}, status=403)
     
     try:
-        exam_session = ExamSession.objects.get(id=exam_session_id)
-        progress_data = get_exam_progress_data(exam_session, request.user)
+        from .models import ChatSession, ExamSession
         
-        # Get current question if not completed
-        if progress_data['answered_questions'] < progress_data['total_questions']:
-            next_question = get_next_exam_question(exam_session, request.user)
-            progress_data['current_question'] = next_question
-        
-        # Get attempt history for current question if applicable
-        if progress_data.get('current_question'):
-            current_question_id = progress_data['current_question']['id']
-            attempts = ExamAnswerAttempt.objects.filter(
-                exam_session=exam_session,
-                student=request.user,
-                question_id=current_question_id
-            ).order_by('attempt_number')
+        # Try to get as ChatSession first (new interactive exam format)
+        try:
+            session = ChatSession.objects.get(id=exam_session_id, student=request.user)
+            metadata = session.get_session_metadata()
             
-            progress_data['current_question_attempts'] = [
-                {
-                    'attempt_number': attempt.attempt_number,
-                    'answer_text': attempt.answer_text,
-                    'is_correct': attempt.is_correct,
-                    'hint_provided': attempt.hint_provided,
-                    'submitted_at': attempt.submitted_at.isoformat()
+            if metadata.get('is_interactive_exam'):
+                # This is a chat-based interactive exam
+                exam_session = InteractiveExamSession.from_dict(metadata['exam_session'])
+                
+                # Calculate progress
+                progress_data = {
+                    'answered_questions': exam_session.current_question_index,
+                    'total_questions': len(exam_session.questions),
+                    'progress_percentage': (exam_session.current_question_index / len(exam_session.questions)) * 100,
+                    'current_question_index': exam_session.current_question_index,
+                    'is_completed': exam_session.current_question_index >= len(exam_session.questions)
                 }
-                for attempt in attempts
-            ]
+                
+                # Get current question if not completed
+                if not progress_data['is_completed']:
+                    current_question = exam_session.questions[exam_session.current_question_index]
+                    progress_data['current_question'] = {
+                        'id': exam_session.current_question_index,
+                        'question_text': current_question['question'],
+                        'question_type': 'short_answer',
+                        'correct_answer': current_question['correct_answer']
+                    }
+                    
+                    # Get attempt history for current question
+                    question_key = str(exam_session.current_question_index)
+                    question_state = exam_session.question_states.get(question_key, {})
+                    attempts = question_state.get('answers', [])
+                    
+                    progress_data['current_question_attempts'] = [
+                        {
+                            'attempt_number': i + 1,
+                            'answer_text': attempt['answer'],
+                            'is_correct': attempt.get('is_correct', False),
+                            'hint_provided': attempt.get('hint', ''),
+                            'submitted_at': attempt.get('timestamp', '')
+                        }
+                        for i, attempt in enumerate(attempts)
+                    ]
+                
+                return Response({
+                    'status': 'success',
+                    'progress': progress_data
+                })
+            else:
+                # This is not an interactive exam session
+                return Response({
+                    'status': 'error',
+                    'message': 'This is not an interactive exam session'
+                }, status=400)
+                
+        except ChatSession.DoesNotExist:
+            # Fall back to ExamSession (legacy format)
+            try:
+                exam_session = ExamSession.objects.get(id=exam_session_id)
+                progress_data = get_exam_progress_data(exam_session, request.user)
+                
+                # Get current question if not completed
+                if progress_data['answered_questions'] < progress_data['total_questions']:
+                    next_question = get_next_exam_question(exam_session, request.user)
+                    progress_data['current_question'] = next_question
+                
+                # Get attempt history for current question if applicable
+                if progress_data.get('current_question'):
+                    current_question_id = progress_data['current_question']['id']
+                    attempts = ExamAnswerAttempt.objects.filter(
+                        exam_session=exam_session,
+                        student=request.user,
+                        question_id=current_question_id
+                    ).order_by('attempt_number')
+                    
+                    progress_data['current_question_attempts'] = [
+                        {
+                            'attempt_number': attempt.attempt_number,
+                            'answer_text': attempt.answer_text,
+                            'is_correct': attempt.is_correct,
+                            'hint_provided': attempt.hint_provided,
+                            'submitted_at': attempt.submitted_at.isoformat()
+                        }
+                        for attempt in attempts
+                    ]
+                
+                return Response({
+                    'status': 'success',
+                    'progress': progress_data
+                })
+                
+            except ExamSession.DoesNotExist:
+                return Response({
+                    'status': 'error',
+                    'message': 'Exam session not found'
+                }, status=404)
         
-        return Response({
-            'status': 'success',
-            'progress': progress_data
-        })
-        
-    except ExamSession.DoesNotExist:
-        return Response({
-            'status': 'error',
-            'message': 'Exam session not found'
-        }, status=404)
     except Exception as e:
         print(f"Error getting interactive exam progress: {e}")
         return Response({
@@ -6796,115 +7549,874 @@ class StudentQuestionProcessor:
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def start_interactive_learning_session(request):
-    """DEPRECATED: Redirect to new structured learning system"""
-    print("🔄 Redirecting to new structured learning system...")
+    """
+    Start Interactive Learning session using ONLY questions from uploaded teacher documents
     
-    # Extract topic from request data
-    topic = request.data.get('topic', 'Linear Equations')
-    if 'Algebraic' in topic or 'algebra' in topic.lower():
-        topic = 'Linear Equations'
+    POST /api/interactive/start/
+    {
+        "document_id": 38  // Optional - if not provided, will auto-select document with most questions
+    }
+    """
+    print("🎓 Starting document-based Interactive Learning session...")
     
-    # Start new structured learning session
     try:
-        learning_manager = StructuredLearningManager(rag_processor)
-        session = learning_manager.start_learning_session(
+        from .models import Document, QuestionBank, ChatSession, ChatInteraction
+        
+        document_id = request.data.get('document_id')
+        
+        # If no document specified, find the document with the most questions
+        if not document_id:
+            # For students - get documents from any teacher
+            # For teachers - get their own documents
+            if request.user.role == 'teacher':
+                documents_query = Document.objects.filter(uploaded_by=request.user)
+            else:
+                # Students can access all teacher documents
+                documents_query = Document.objects.filter(uploaded_by__role='teacher')
+            
+            # Find document with most questions
+            best_document = None
+            max_questions = 0
+            
+            for doc in documents_query:
+                questions_count = QuestionBank.objects.filter(
+                    document=doc,
+                    is_generated=True
+                ).count()
+                if questions_count > max_questions:
+                    max_questions = questions_count
+                    best_document = doc
+            
+            if not best_document:
+                return Response({
+                    'error': 'No documents with generated questions found',
+                    'message': 'Please ask your teacher to upload and process documents first.'
+                }, status=404)
+            
+            document = best_document
+        else:
+            # Use specified document
+            try:
+                document = Document.objects.get(id=document_id)
+            except Document.DoesNotExist:
+                return Response({'error': 'Document not found'}, status=404)
+        
+        # Get exactly 10 questions from the document (mix of all difficulty levels)
+        questions_query = QuestionBank.objects.filter(
+            document=document,
+            is_generated=True
+        ).order_by('difficulty_level', '?')  # Random order within difficulty levels
+        
+        questions = list(questions_query[:10])  # Exactly 10 questions
+        
+        if len(questions) < 10:
+            return Response({
+                'error': f'Not enough questions in document. Found {len(questions)}, need 10.',
+                'message': f'Document "{document.title}" only has {len(questions)} questions. Need at least 10.'
+            }, status=400)
+        
+        # Create interactive learning session
+        session = ChatSession.objects.create(
             student=request.user,
-            topic=topic,
-            total_questions=5  # Start with 5 questions
+            topic=f"Interactive Learning: {document.title}",
+            session_type='interactive_learning',
+            total_questions=10,
+            current_question_index=0
         )
         
+        # Store question IDs and document info
+        session.set_session_metadata({
+            'document_id': document.id,
+            'question_ids': [q.id for q in questions],
+            'is_document_based': True,
+            'hints_used': {},  # Track hints per question: {question_id: hint_count}
+            'max_hints_per_question': 3
+        })
+        session.save()
+        
         # Get first question
-        first_question = learning_manager.get_current_question(session)
+        first_question = questions[0]
+        
+        # Create initial interaction
+        welcome_message = f"🎓 Welcome to Interactive Learning!\n\n📚 We'll work through 10 questions from '{document.title}' together.\n\n❓ I'll guide you step by step, and you can ask for up to 3 hints per question if needed.\n\nLet's start with Question 1:\n\n{first_question.question_text}\n\nA) {first_question.option_a}\nB) {first_question.option_b}\nC) {first_question.option_c}\nD) {first_question.option_d}"
+        
+        ChatInteraction.objects.create(
+            student=request.user,
+            question="Started Interactive Learning session",
+            answer=welcome_message,
+            topic="Interactive Learning",
+            document=document
+        )
         
         return Response({
             'session_id': session.id,
-            'welcome_message': f"🎓 Welcome! Let's work through {topic} step by step.",
-            'topic': topic,
-            'learning_goal': f"Master {topic} concepts",
-            'initial_question': first_question['question'],
-            'progress': f"Question 1 of {first_question['total_questions']}",
-            'is_structured': True  # Flag for frontend to use new endpoints
+            'document_title': document.title,
+            'welcome_message': welcome_message,
+            'total_questions': 10,
+            'current_question': 1,
+            'current_question_data': {
+                'id': first_question.id,
+                'question': first_question.question_text,
+                'options': {
+                    'A': first_question.option_a,
+                    'B': first_question.option_b,
+                    'C': first_question.option_c,
+                    'D': first_question.option_d
+                },
+                'difficulty_level': first_question.difficulty_level
+            },
+            'hints_available': 3
         }, status=201)
         
     except Exception as e:
-        print(f"❌ Error starting structured session: {e}")
+        print(f"❌ Error starting interactive learning: {e}")
         return Response({
-            'error': str(e)
+            'error': str(e),
+            'message': 'Failed to start interactive learning session'
         }, status=500)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def interactive_learning_chat(request, session_id):
-    """DEPRECATED: Redirect to structured learning answer submission"""
-    print(f"🔄 Redirecting chat to structured learning system for session {session_id}")
+    """
+    Handle Interactive Learning chat - supports answers and hint requests
     
-    student_message = request.data.get('message', '').strip()
+    POST /api/interactive/chat/{session_id}/
+    {
+        "message": "A" or "hint" or "help"
+    }
+    """
+    print(f"🎓 Processing Interactive Learning chat for session {session_id}")
     
     try:
-        # Try to find a corresponding LearningSession
-        learning_session = LearningSession.objects.filter(
-            student=request.user,
-            is_completed=False
-        ).order_by('-started_at').first()
+        from .models import ChatSession, QuestionBank, ChatInteraction
+        import requests
+        import json
         
-        if not learning_session:
-            # Create a new session if none exists
-            learning_manager = StructuredLearningManager(rag_processor)
-            learning_session = learning_manager.start_learning_session(
-                student=request.user,
-                topic='Linear Equations',
-                total_questions=5
-            )
-            
-            # Get first question
-            first_question = learning_manager.get_current_question(learning_session)
+        # Get session
+        try:
+            session = ChatSession.objects.get(id=session_id, student=request.user)
+        except ChatSession.DoesNotExist:
+            return Response({'error': 'Learning session not found'}, status=404)
+        
+        # Verify this is a document-based session
+        metadata = session.get_session_metadata()
+        if not metadata.get('is_document_based'):
+            return Response({'error': 'This is not a document-based learning session'}, status=400)
+        
+        student_message = request.data.get('message', '').strip().lower()
+        
+        if not student_message:
+            return Response({'error': 'Message is required'}, status=400)
+        
+        # Get current question
+        question_ids = metadata.get('question_ids', [])
+        if session.current_question_index >= len(question_ids):
             return Response({
-                'ai_response': first_question['question'],
-                'session_info': {
-                    'understanding_level': 0,
-                    'question_number': 1,
-                    'total_questions': 5,
-                    'session_id': learning_session.id
-                },
-                'message': 'Started new structured learning session!'
+                'ai_response': "🎉 Congratulations! You've completed all 10 questions!",
+                'session_completed': True,
+                'progress': {
+                    'current': session.current_question_index,
+                    'total': 10,
+                    'percentage': 100
+                }
             })
         
-        # Process answer using structured learning
-        learning_manager = StructuredLearningManager(rag_processor)
-        result = learning_manager.process_student_answer(learning_session, student_message)
+        current_question_id = question_ids[session.current_question_index]
+        current_question = QuestionBank.objects.get(id=current_question_id)
         
-        if result['is_correct']:
-            if result['next_question']:
-                response_text = f"{result['feedback']} {result['next_question']['question']}"
+        # Handle hint requests
+        if student_message in ['hint', 'help', 'רמז', 'עזרה']:
+            hints_used = metadata.get('hints_used', {})
+            question_hints = hints_used.get(str(current_question_id), 0)
+            max_hints = metadata.get('max_hints_per_question', 3)
+            
+            if question_hints >= max_hints:
+                hint_response = f"⚠️ You've already used all {max_hints} hints for this question. Try to answer based on what you've learned!"
             else:
-                # Session complete
-                response_text = f"{result['feedback']} 🎉 Congratulations! You completed the topic!"
-        else:
-            response_text = result['feedback']
+                # Generate contextual hint using Ollama - MUST be available
+                hint_number = question_hints + 1
+                try:
+                    ollama_hint = generate_question_hint(current_question, hint_number)
+                    
+                    # Update hints counter only if hint generation succeeded
+                    hints_used[str(current_question_id)] = question_hints + 1
+                    metadata['hints_used'] = hints_used
+                    session.set_session_metadata(metadata)
+                    session.save()
+                    
+                    hint_response = f"💡 Hint {hint_number}/{max_hints}:\n\n{ollama_hint}\n\nNow try to answer: A, B, C, or D?"
+                    
+                except Exception as e:
+                    # If Ollama fails, return error message instead of generic hint
+                    error_msg = str(e)
+                    hint_response = f"❌ לא ניתן לספק רמז כרגע: {error_msg}\n\nאנא נסה שוב או המשך לענות על השאלה."
+                    
+                    # Log the error but don't update hint counter
+                    print(f"🚨 Hint generation failed for question {current_question_id}: {e}")
+            
+            # Save interaction
+            ChatInteraction.objects.create(
+                student=request.user,
+                question=f"Requested hint for question {session.current_question_index + 1}",
+                answer=hint_response,
+                topic="Interactive Learning - Hint"
+            )
+            
+            return Response({
+                'ai_response': hint_response,
+                'session_completed': False,
+                'progress': {
+                    'current': session.current_question_index + 1,
+                    'total': 10,
+                    'percentage': round(((session.current_question_index + 1) / 10) * 100, 1)
+                },
+                'hints_used': hints_used.get(str(current_question_id), 0),
+                'hints_remaining': max_hints - hints_used.get(str(current_question_id), 0)
+            })
         
-        return Response({
-            'ai_response': response_text,
-            'session_info': {
-                'understanding_level': result['progress']['understanding'],
-                'question_number': learning_session.current_question_index + 1,
-                'total_questions': learning_session.total_questions,
-                'session_id': learning_session.id,
-                'is_correct': result['is_correct']
+        # Handle answer submission
+        answer = student_message.upper()
+        if answer not in ['A', 'B', 'C', 'D']:
+            return Response({
+                'ai_response': "Please provide your answer as A, B, C, or D. You can also type 'hint' if you need help!",
+                'session_completed': False
+            })
+        
+        # Check if answer is correct
+        is_correct = (answer == current_question.correct_answer.upper())
+        
+        # Prepare feedback
+        if is_correct:
+            feedback = f"✅ Excellent! That's correct!\n\n"
+            if current_question.explanation:
+                feedback += f"📝 {current_question.explanation}\n\n"
+            
+            # Move to next question
+            session.current_question_index += 1
+            session.save()
+            
+            # Check if there are more questions
+            if session.current_question_index < len(question_ids):
+                next_question_id = question_ids[session.current_question_index]
+                next_question = QuestionBank.objects.get(id=next_question_id)
+                
+                feedback += f"Question {session.current_question_index + 1}/10:\n\n{next_question.question_text}\n\nA) {next_question.option_a}\nB) {next_question.option_b}\nC) {next_question.option_c}\nD) {next_question.option_d}"
+                
+                next_question_data = {
+                    'id': next_question.id,
+                    'question': next_question.question_text,
+                    'options': {
+                        'A': next_question.option_a,
+                        'B': next_question.option_b,
+                        'C': next_question.option_c,
+                        'D': next_question.option_d
+                    },
+                    'difficulty_level': next_question.difficulty_level
+                }
+            else:
+                # Session completed
+                session.is_completed = True
+                session.save()
+                feedback += "🎉 Congratulations! You've completed all 10 questions successfully!"
+                next_question_data = None
+                
+        else:
+            feedback = f"❌ Not quite right. The correct answer is {current_question.correct_answer}.\n\n"
+            if current_question.explanation:
+                feedback += f"📝 {current_question.explanation}\n\n"
+            
+            feedback += "Let's try the next question!\n\n"
+            
+            # Move to next question even if wrong
+            session.current_question_index += 1
+            session.save()
+            
+            # Check if there are more questions
+            if session.current_question_index < len(question_ids):
+                next_question_id = question_ids[session.current_question_index]
+                next_question = QuestionBank.objects.get(id=next_question_id)
+                
+                feedback += f"Question {session.current_question_index + 1}/10:\n\n{next_question.question_text}\n\nA) {next_question.option_a}\nB) {next_question.option_b}\nC) {next_question.option_c}\nD) {next_question.option_d}"
+                
+                next_question_data = {
+                    'id': next_question.id,
+                    'question': next_question.question_text,
+                    'options': {
+                        'A': next_question.option_a,
+                        'B': next_question.option_b,
+                        'C': next_question.option_c,
+                        'D': next_question.option_d
+                    },
+                    'difficulty_level': next_question.difficulty_level
+                }
+            else:
+                # Session completed
+                session.is_completed = True
+                session.save()
+                feedback += "🎉 You've completed all 10 questions! Well done!"
+                next_question_data = None
+        
+        # Save interaction
+        ChatInteraction.objects.create(
+            student=request.user,
+            question=f"Answer: {answer}",
+            answer=feedback,
+            topic="Interactive Learning - Answer"
+        )
+        
+        response_data = {
+            'ai_response': feedback,
+            'is_correct': is_correct,
+            'session_completed': session.is_completed,
+            'progress': {
+                'current': session.current_question_index,
+                'total': 10,
+                'percentage': round((session.current_question_index / 10) * 100, 1)
             }
-        })
+        }
+        
+        if next_question_data:
+            response_data['next_question'] = next_question_data
+            response_data['hints_available'] = metadata.get('max_hints_per_question', 3)
+        
+        return Response(response_data)
         
     except Exception as e:
-        print(f"❌ Error in redirected chat: {e}")
+        print(f"❌ Error in interactive learning chat: {e}")
         return Response({
-            'ai_response': "Let's start with a simple question: In 2x + 5 = 11, what does 'x' represent?",
-            'session_info': {
-                'understanding_level': 0,
-                'messages_count': 1,
-                'session_id': session_id
-            }
-        })
+            'error': str(e),
+            'message': 'Failed to process chat message'
+        }, status=500)
+
+
+def generate_question_hint(question, hint_number):
+    """Generate contextual hints for questions using Ollama"""
     try:
+        # Create different types of hints based on hint number
+        if hint_number == 1:
+            prompt = f"Provide a gentle hint for this question without giving away the answer:\n\nQuestion: {question.question_text}\n\nOptions:\nA) {question.option_a}\nB) {question.option_b}\nC) {question.option_c}\nD) {question.option_d}\n\nCorrect answer: {question.correct_answer}\n\nProvide a subtle hint that guides thinking but doesn't reveal the answer. Keep it brief and encouraging."
+        elif hint_number == 2:
+            prompt = f"Provide a more specific hint for this question:\n\nQuestion: {question.question_text}\n\nOptions:\nA) {question.option_a}\nB) {question.option_b}\nC) {question.option_c}\nD) {question.option_d}\n\nCorrect answer: {question.correct_answer}\n\nProvide a clearer hint that narrows down the options or explains key concepts. Still don't give the direct answer."
+        else:  # hint_number == 3
+            prompt = f"Provide a strong hint for this question:\n\nQuestion: {question.question_text}\n\nOptions:\nA) {question.option_a}\nB) {question.option_b}\nC) {question.option_c}\nD) {question.option_d}\n\nCorrect answer: {question.correct_answer}\n\nProvide a detailed hint that almost points to the answer but still requires the student to make the final connection."
+        
+        # Call Ollama - MUST be available for hints to work
+        try:
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "llama3.2",
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=60  # Increased timeout to ensure Ollama can respond
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                hint_text = data.get('response', '').strip()
+                if hint_text:
+                    return hint_text
+                else:
+                    raise Exception("Empty response from Ollama")
+            else:
+                raise Exception(f"Ollama returned status code {response.status_code}")
+                
+        except requests.exceptions.Timeout:
+            print(f"❌ Ollama timeout for hint {hint_number} - taking too long")
+            raise Exception("אוללמה לא זמין כרגע. אנא נסה שוב מאוחר יותר.")
+        except requests.exceptions.ConnectionError:
+            print(f"❌ Ollama connection error for hint {hint_number} - server not running")
+            raise Exception("שירות הרמזים לא זמין. אנא פנה למנהל המערכת.")
+            
+    except Exception as e:
+        print(f"❌ Error generating hint: {e}")
+        # Re-raise the exception so the view can handle it
+        raise Exception(f"לא ניתן לייצר רמז כרגע: {str(e)}")
+
+
+def get_fallback_hint(hint_number):
+    """This function is removed - no fallback hints allowed"""
+    pass
+
+
+# =================== INTERACTIVE CHAT-BASED EXAM SYSTEM ===================
+# Replaces Level Test with chat-based exam using open-ended answers
+
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from interactive_exam_system import (
+    InteractiveExamSession, 
+    AnswerEvaluator, 
+    QuestionGenerator, 
+    HintGenerator
+)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def start_interactive_exam(request):
+    """
+    Start Interactive Chat-Based Exam session using teacher's uploaded documents
+    
+    POST /api/exam/start/
+    {
+        "document_id": 38  // Optional - if not provided, will auto-select document
+    }
+    """
+    print("🎓 Starting Interactive Chat-Based Exam...")
+    print(f"👤 User: {request.user.username} (role: {request.user.role})")
+    print(f"📝 Request data: {request.data}")
+    
+    try:
+        from .models import Document, ChatSession
+        
+        # Get document to use for questions
+        document_id = request.data.get('document_id')
+        
+        if document_id:
+            try:
+                document = Document.objects.get(id=document_id)
+                # Ensure the document is from a teacher
+                if document.uploaded_by.role != 'teacher':
+                    return Response({
+                        'error': 'Only teacher-uploaded documents can be used for interactive exams'
+                    }, status=403)
+            except Document.DoesNotExist:
+                return Response({'error': 'Document not found'}, status=404)
+        else:
+            # Auto-select document with most content - ONLY from teachers
+            documents = Document.objects.filter(
+                uploaded_by__role='teacher',  # Only teacher-uploaded documents
+                extracted_text__isnull=False
+            ).exclude(extracted_text='').order_by('-created_at')
+            
+            if not documents.exists():
+                return Response({
+                    'error': 'No teacher documents with content found. Teachers must upload and process documents first.'
+                }, status=400)
+            
+            document = documents.first()
+        
+        print(f"📚 Using document: {document.title} ({len(document.extracted_text)} characters)")
+        
+        # Generate 10 questions from document using Gemini 2.0 Flash
+        print("❓ Generating 10 questions from document using Gemini 2.0 Flash...")
+        print(f"📄 Document content length: {len(document.extracted_text)} characters")
+        try:
+            questions = generate_questions_with_gemini(
+                document.extracted_text,
+                document.title,
+                count=10
+            )
+            print(f"✅ Generated {len(questions)} questions")
+            if questions:
+                print(f"📝 First question: {questions[0].get('question', 'N/A')[:100]}...")
+            else:
+                print("⚠️ Questions list is empty!")
+        except Exception as e:
+            print(f"❌ Error generating questions: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'error': f'Failed to generate questions: {str(e)}',
+                'message': 'Please ensure Gemini API is configured correctly.'
+            }, status=500)
+        
+        # Create exam session
+        session = ChatSession.objects.create(
+            student=request.user,
+            topic=f"Interactive Exam: {document.title}",
+            current_question_index=0,
+            total_questions=10,
+            is_completed=False
+        )
+        
+        # Create interactive exam session
+        exam_session = InteractiveExamSession(
+            session_id=str(session.id),
+            student_id=str(request.user.id),
+            document_id=str(document.id)
+        )
+        exam_session.questions = questions
+        exam_session.state = InteractiveExamSession.ASKING
+        
+        # Initialize first question state
+        exam_session.question_states['0'] = {
+            'attemptCount': 0,
+            'hintsShown': 0,
+            'isCorrect': False,
+            'answers': [],
+            'startTime': timezone.now().isoformat()
+        }
+        
+        # Store session metadata
+        metadata = {
+            'is_interactive_exam': True,
+            'document_id': document.id,
+            'document_title': document.title,
+            'exam_session': exam_session.to_dict()
+        }
+        session.set_session_metadata(metadata)
+        session.save()
+        
+        # Validate questions were generated
+        if not questions or len(questions) == 0:
+            return Response({
+                'error': 'No questions were generated from the document',
+                'message': 'Please ensure the document has sufficient content for question generation'
+            }, status=500)
+        
+        # Get first question
+        first_question = questions[0]
+        
+        response_data = {
+            'session_id': session.id,
+            'message': f"🎯 Interactive Exam: {document.title}",
+            'first_question': f"Welcome to your interactive exam! I'll ask you 10 questions based on the document '{document.title}'. You'll have up to 3 attempts per question and can request hints if needed.\n\n**Question 1/10:**\n\n{first_question['question']}\n\nPlease provide your answer:",
+            'ai_response': f"Welcome to your interactive exam! I'll ask you 10 questions based on the document '{document.title}'. You'll have up to 3 attempts per question and can request hints if needed.\n\n**Question 1/10:**\n\n{first_question['question']}\n\nPlease provide your answer:",
+            'progress': {
+                'current': 1,
+                'total': 10,
+                'percentage': 10.0
+            },
+            'exam_state': {
+                'question_number': 1,
+                'attempts_left': 3,
+                'hints_available': 3,
+                'state': 'WAITING_FOR_ANSWER'
+            }
+        }
+        
+        return Response(response_data, status=201)
+        
+    except Exception as e:
+        print(f"❌ Error starting interactive exam: {e}")
+        return Response({
+            'error': str(e),
+            'message': 'Failed to start interactive exam'
+        }, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def interactive_exam_chat(request, session_id):
+    """
+    Handle Interactive Exam chat - processes answers and manages exam flow
+    
+    POST /api/exam/chat/{session_id}/
+    {
+        "message": "student answer" or "hint"
+    }
+    """
+    print(f"🎓 Processing Interactive Exam chat for session {session_id}")
+    
+    try:
+        from .models import ChatSession, ChatInteraction, Document
+        
+        # Get session
+        try:
+            session = ChatSession.objects.get(id=session_id, student=request.user)
+        except ChatSession.DoesNotExist:
+            return Response({'error': 'Exam session not found'}, status=404)
+        
+        # Verify this is an interactive exam session
+        metadata = session.get_session_metadata()
+        if not metadata.get('is_interactive_exam'):
+            return Response({'error': 'This is not an interactive exam session'}, status=400)
+        
+        # Restore exam session
+        exam_session = InteractiveExamSession.from_dict(metadata['exam_session'])
+        
+        student_message = request.data.get('message', '').strip()
+        
+        if not student_message:
+            return Response({'error': 'Message is required'}, status=400)
+        
+        # Check if exam is completed
+        if exam_session.current_question_index >= 10:
+            return generate_exam_completion_report(exam_session, session)
+        
+        current_question = exam_session.questions[exam_session.current_question_index]
+        question_key = str(exam_session.current_question_index)
+        question_state = exam_session.question_states.get(question_key, {})
+        
+        # Handle hint requests
+        if student_message.lower() in ['hint', 'help', 'רמז', 'עזרה']:
+            return handle_hint_request(exam_session, session, current_question, question_state, metadata)
+        
+        # Handle answer submission
+        return handle_answer_submission(exam_session, session, current_question, question_state, student_message, metadata)
+        
+    except Exception as e:
+        print(f"❌ Error in interactive exam chat: {e}")
+        return Response({
+            'error': str(e),
+            'message': 'Failed to process exam response'
+        }, status=500)
+
+
+def handle_hint_request(exam_session, session, current_question, question_state, metadata):
+    """Handle student hint requests during exam"""
+    
+    hints_shown = question_state.get('hintsShown', 0)
+    max_hints = 3
+    
+    if hints_shown >= max_hints:
+        hint_response = f"⚠️ You've already used all {max_hints} hints for this question. Please provide your answer."
+    else:
+        try:
+            # Get document for context
+            document = Document.objects.get(id=metadata['document_id'])
+            
+            # Use pre-computed hint or generate new one
+            if 'hints' in current_question and hints_shown < len(current_question['hints']):
+                hint_text = current_question['hints'][hints_shown]
+            else:
+                # Generate contextual hint
+                student_answers = question_state.get('answers', [])
+                last_answer = student_answers[-1] if student_answers else ""
+                
+                hint_text = HintGenerator.generate_hint(
+                    current_question['question'],
+                    current_question['correct_answer'],
+                    last_answer,
+                    hints_shown + 1,
+                    document.extracted_text
+                )
+            
+            # Update hints counter
+            question_state['hintsShown'] = hints_shown + 1
+            exam_session.question_states[str(exam_session.current_question_index)] = question_state
+            
+            # Update session metadata
+            metadata['exam_session'] = exam_session.to_dict()
+            session.set_session_metadata(metadata)
+            session.save()
+            
+            hint_response = f"💡 Hint {hints_shown + 1}/{max_hints}:\n\n{hint_text}\n\nNow please provide your answer:"
+            
+        except Exception as e:
+            print(f"❌ Error generating hint: {e}")
+            hint_response = f"❌ Unable to generate hint: {str(e)}\n\nPlease try to answer the question."
+    
+    # Save interaction
+    ChatInteraction.objects.create(
+        student=request.user,
+        question=f"Requested hint for question {exam_session.current_question_index + 1}",
+        answer=hint_response,
+        topic="Interactive Exam - Hint"
+    )
+    
+    return Response({
+        'ai_response': hint_response,
+        'session_completed': False,
+        'progress': {
+            'current': exam_session.current_question_index + 1,
+            'total': 10,
+            'percentage': round(((exam_session.current_question_index + 1) / 10) * 100, 1)
+        },
+        'exam_state': {
+            'question_number': exam_session.current_question_index + 1,
+            'attempts_left': 3 - question_state.get('attemptCount', 0),
+            'hints_available': max_hints - question_state.get('hintsShown', 0),
+            'state': 'WAITING_FOR_ANSWER'
+        }
+    })
+
+
+def handle_answer_submission(exam_session, session, current_question, question_state, student_answer, metadata):
+    """Handle student answer submission during exam"""
+    
+    attempt_count = question_state.get('attemptCount', 0)
+    max_attempts = 3
+    
+    if attempt_count >= max_attempts:
+        return Response({
+            'ai_response': f"You've already used all {max_attempts} attempts for this question. Moving to next question.",
+            'session_completed': False
+        })
+    
+    # Record attempt
+    attempt_count += 1
+    question_state['attemptCount'] = attempt_count
+    question_state.setdefault('answers', []).append(student_answer)
+    
+    # Evaluate answer
+    is_correct, feedback = AnswerEvaluator.evaluate_answer(student_answer, current_question)
+    
+    if is_correct:
+        # Correct answer - move to next question
+        question_state['isCorrect'] = True
+        exam_session.total_correct += 1
+        exam_session.current_question_index += 1
+        
+        if exam_session.current_question_index >= 10:
+            # Exam completed
+            exam_session.state = InteractiveExamSession.COMPLETED
+            response_text = f"✅ Correct! {feedback}\n\n🎉 Congratulations! You've completed all 10 questions!"
+            session_completed = True
+        else:
+            # Next question
+            next_question = exam_session.questions[exam_session.current_question_index]
+            
+            # Initialize next question state
+            exam_session.question_states[str(exam_session.current_question_index)] = {
+                'attemptCount': 0,
+                'hintsShown': 0,
+                'isCorrect': False,
+                'answers': [],
+                'startTime': timezone.now().isoformat()
+            }
+            
+            response_text = f"✅ Correct! {feedback}\n\n**Question {exam_session.current_question_index + 1}/10:**\n\n{next_question['question']}\n\nPlease provide your answer:"
+            session_completed = False
+    else:
+        # Incorrect answer
+        if attempt_count >= max_attempts:
+            # Max attempts reached - show correct answer and move to next
+            exam_session.current_question_index += 1
+            
+            if exam_session.current_question_index >= 10:
+                # Exam completed
+                exam_session.state = InteractiveExamSession.COMPLETED
+                response_text = f"❌ {feedback}\n\nThe correct answer was: {current_question['correct_answer']}\n\n🎉 You've completed all 10 questions!"
+                session_completed = True
+            else:
+                # Next question
+                next_question = exam_session.questions[exam_session.current_question_index]
+                
+                # Initialize next question state
+                exam_session.question_states[str(exam_session.current_question_index)] = {
+                    'attemptCount': 0,
+                    'hintsShown': 0,
+                    'isCorrect': False,
+                    'answers': [],
+                    'startTime': timezone.now().isoformat()
+                }
+                
+                response_text = f"❌ {feedback}\n\nThe correct answer was: {current_question['correct_answer']}\n\n**Question {exam_session.current_question_index + 1}/10:**\n\n{next_question['question']}\n\nPlease provide your answer:"
+                session_completed = False
+        else:
+            # Still have attempts left
+            attempts_left = max_attempts - attempt_count
+            response_text = f"❌ {feedback}\n\nYou have {attempts_left} attempt{'s' if attempts_left != 1 else ''} remaining. You can also type 'hint' for help."
+            session_completed = False
+    
+    # Update session
+    exam_session.question_states[str(exam_session.current_question_index - (1 if is_correct or attempt_count >= max_attempts else 0))] = question_state
+    
+    if session_completed:
+        session.is_completed = True
+    
+    # Update session metadata
+    metadata['exam_session'] = exam_session.to_dict()
+    session.set_session_metadata(metadata)
+    session.save()
+    
+    # Save interaction
+    ChatInteraction.objects.create(
+        student=request.user,
+        question=f"Answer: {student_answer}",
+        answer=response_text,
+        topic="Interactive Exam - Answer"
+    )
+    
+    response_data = {
+        'ai_response': response_text,
+        'is_correct': is_correct,
+        'session_completed': session_completed,
+        'progress': {
+            'current': exam_session.current_question_index + (0 if session_completed else 1),
+            'total': 10,
+            'percentage': round((exam_session.current_question_index / 10) * 100, 1)
+        }
+    }
+    
+    if not session_completed:
+        response_data['exam_state'] = {
+            'question_number': exam_session.current_question_index + 1,
+            'attempts_left': max_attempts - question_state.get('attemptCount', 0),
+            'hints_available': 3 - question_state.get('hintsShown', 0),
+            'state': 'WAITING_FOR_ANSWER'
+        }
+    else:
+        # Generate completion report
+        completion_report = generate_completion_summary(exam_session)
+        response_data['completion_report'] = completion_report
+    
+    return Response(response_data)
+
+
+def generate_completion_summary(exam_session):
+    """Generate exam completion summary report"""
+    
+    total_time = timezone.now() - exam_session.start_time
+    total_minutes = total_time.total_seconds() / 60
+    
+    summary = {
+        'score': f"{exam_session.total_correct}/10",
+        'percentage': round((exam_session.total_correct / 10) * 100, 1),
+        'total_time': f"{int(total_minutes)}m {int(total_time.total_seconds() % 60)}s",
+        'questions_with_hints': 0,
+        'questions_max_attempts': 0,
+        'incorrect_questions': []
+    }
+    
+    for i, (question_key, state) in enumerate(exam_session.question_states.items()):
+        if state.get('hintsShown', 0) > 0:
+            summary['questions_with_hints'] += 1
+        
+        if state.get('attemptCount', 0) >= 3 and not state.get('isCorrect', False):
+            summary['questions_max_attempts'] += 1
+        
+        if not state.get('isCorrect', False):
+            question = exam_session.questions[int(question_key)]
+            summary['incorrect_questions'].append({
+                'question_number': i + 1,
+                'question': question['question'],
+                'correct_answer': question['correct_answer'],
+                'student_answers': state.get('answers', [])
+            })
+    
+    return summary
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_exam_progress(request, session_id):
+    """Get current exam progress and state"""
+    
+    try:
+        session = ChatSession.objects.get(id=session_id, student=request.user)
+        metadata = session.get_session_metadata()
+        
+        if not metadata.get('is_interactive_exam'):
+            return Response({'error': 'Not an interactive exam session'}, status=400)
+        
+        exam_session = InteractiveExamSession.from_dict(metadata['exam_session'])
+        
+        return Response({
+            'progress': {
+                'current': exam_session.current_question_index + 1,
+                'total': 10,
+                'percentage': round(((exam_session.current_question_index + 1) / 10) * 100, 1)
+            },
+            'score': {
+                'correct': exam_session.total_correct,
+                'total': exam_session.current_question_index + 1
+            },
+            'state': exam_session.state,
+            'is_completed': exam_session.state == InteractiveExamSession.COMPLETED
+        })
+        
+    except ChatSession.DoesNotExist:
+        return Response({'error': 'Session not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
         session = ChatSession.objects.get(id=session_id, student=request.user)
         student_message = request.data.get('message', '')
         
@@ -7746,3 +9258,525 @@ class ExamConfigViewSet(viewsets.ModelViewSet):
                 'error': str(e),
                 'message': 'Failed to list exam configurations'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# 📚 DOCUMENT-BASED INTERACTIVE LEARNING SYSTEM
+# ================================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def start_document_based_learning(request):
+    """
+    Start an interactive learning session based on questions generated from a specific document
+    
+    POST /api/start_document_learning/
+    {
+        "document_id": 42,
+        "difficulty_levels": ["3", "4", "5"],  # Optional, default all levels
+        "max_questions": 10  # Optional, default all available questions
+    }
+    """
+    try:
+        from .models import Document, QuestionBank, ChatSession
+        
+        document_id = request.data.get('document_id')
+        difficulty_levels = request.data.get('difficulty_levels', ['3', '4', '5'])
+        max_questions = request.data.get('max_questions', None)
+        
+        if not document_id:
+            return Response({'error': 'document_id is required'}, status=400)
+        
+        # Verify document exists and belongs to user (for teachers) or is accessible
+        try:
+            document = Document.objects.get(id=document_id)
+            
+            # Check permissions
+            if request.user.role == 'teacher' and document.uploaded_by != request.user:
+                return Response({'error': 'You can only access your own documents'}, status=403)
+                
+        except Document.DoesNotExist:
+            return Response({'error': 'Document not found'}, status=404)
+        
+        # Get questions generated from this document
+        questions_query = QuestionBank.objects.filter(
+            document=document,
+            is_generated=True,  # Only AI-generated questions
+            difficulty_level__in=difficulty_levels
+        ).order_by('difficulty_level', 'id')
+        
+        if max_questions:
+            questions_query = questions_query[:max_questions]
+            
+        questions = list(questions_query)
+        
+        if not questions:
+            return Response({
+                'error': 'No questions found for this document',
+                'message': f'No generated questions found for document "{document.title}" with difficulty levels {difficulty_levels}'
+            }, status=404)
+        
+        # Create a new chat session for this document-based learning
+        session = ChatSession.objects.create(
+            student=request.user,
+            topic=f"Document: {document.title}",
+            total_questions=len(questions),
+            current_question_index=0
+        )
+        
+        # Store question IDs in session metadata using helper method
+        session.set_session_metadata({
+            'document_id': document_id,
+            'question_ids': [q.id for q in questions],
+            'difficulty_levels': difficulty_levels,
+            'is_document_based': True
+        })
+        session.save()
+        
+        # Get first question
+        first_question = questions[0]
+        
+        # Create initial message
+        from .models import ChatInteraction
+        ChatInteraction.objects.create(
+            student=request.user,
+            question="Started document-based learning session",
+            answer=f"📚 Welcome to interactive learning based on '{document.title}'!\n\nLet's start with the first question:\n\n{first_question.question_text}",
+            topic="Document-based Learning",
+            document=document
+        )
+        
+        return Response({
+            'session_id': session.id,
+            'document_title': document.title,
+            'total_questions': len(questions),
+            'current_question': 1,
+            'first_question': {
+                'id': first_question.id,
+                'question': first_question.question_text,
+                'options': {
+                    'A': first_question.option_a,
+                    'B': first_question.option_b,
+                    'C': first_question.option_c,
+                    'D': first_question.option_d
+                },
+                'difficulty_level': first_question.difficulty_level
+            },
+            'message': f"Started learning session with {len(questions)} questions from '{document.title}'"
+        }, status=201)
+        
+    except Exception as e:
+        print(f"❌ Error starting document-based learning: {e}")
+        return Response({
+            'error': str(e),
+            'message': 'Failed to start document-based learning session'
+        }, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_document_learning_answer(request, session_id):
+    """
+    Submit an answer for document-based learning session
+    
+    POST /api/document_learning/{session_id}/answer/
+    {
+        "answer": "A",
+        "question_id": 154
+    }
+    """
+    try:
+        from .models import ChatSession, QuestionBank, ChatInteraction
+        
+        # Get session
+        try:
+            session = ChatSession.objects.get(id=session_id, student=request.user)
+        except ChatSession.DoesNotExist:
+            return Response({'error': 'Learning session not found'}, status=404)
+        
+        # Verify this is a document-based session
+        metadata = session.get_session_metadata()
+        if not metadata.get('is_document_based'):
+            return Response({'error': 'This is not a document-based learning session'}, status=400)
+        
+        answer = request.data.get('answer', '').strip().upper()
+        question_id = request.data.get('question_id')
+        
+        if not answer or not question_id:
+            return Response({'error': 'answer and question_id are required'}, status=400)
+        
+        # Get current question
+        try:
+            current_question = QuestionBank.objects.get(id=question_id)
+        except QuestionBank.DoesNotExist:
+            return Response({'error': 'Question not found'}, status=404)
+        
+        # Check if answer is correct
+        is_correct = (answer == current_question.correct_answer.upper())
+        
+        # Prepare feedback
+        if is_correct:
+            feedback = f"✅ Correct! {current_question.explanation if current_question.explanation else 'Well done!'}"
+        else:
+            feedback = f"❌ Incorrect. The correct answer is {current_question.correct_answer}. {current_question.explanation if current_question.explanation else ''}"
+        
+        # Update session progress
+        session.current_question_index += 1
+        question_ids = metadata.get('question_ids', [])
+        
+        # Check if there are more questions
+        has_next = session.current_question_index < len(question_ids)
+        next_question_data = None
+        
+        if has_next:
+            next_question_id = question_ids[session.current_question_index]
+            try:
+                next_question = QuestionBank.objects.get(id=next_question_id)
+                next_question_data = {
+                    'id': next_question.id,
+                    'question': next_question.question_text,
+                    'options': {
+                        'A': next_question.option_a,
+                        'B': next_question.option_b,
+                        'C': next_question.option_c,
+                        'D': next_question.option_d
+                    },
+                    'difficulty_level': next_question.difficulty_level
+                }
+                feedback += f"\n\nNext question:\n{next_question.question_text}"
+            except QuestionBank.DoesNotExist:
+                has_next = False
+        else:
+            # Session completed
+            session.is_completed = True
+            feedback += f"\n\n🎉 Congratulations! You've completed all questions from this document. Session finished!"
+        
+        session.save()
+        
+        # Save interaction
+        ChatInteraction.objects.create(
+            student=request.user,
+            question=f"Answer: {answer}",
+            answer=feedback,
+            topic="Document-based Learning - Answer"
+        )
+        
+        response_data = {
+            'is_correct': is_correct,
+            'feedback': feedback,
+            'progress': {
+                'current': session.current_question_index,
+                'total': len(question_ids),
+                'percentage': round((session.current_question_index / len(question_ids)) * 100, 1)
+            },
+            'session_completed': not has_next
+        }
+        
+        if next_question_data:
+            response_data['next_question'] = next_question_data
+        
+        return Response(response_data)
+        
+    except Exception as e:
+        print(f"❌ Error processing document learning answer: {e}")
+        return Response({
+            'error': str(e),
+            'message': 'Failed to process answer'
+        }, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_document_learning_progress(request, session_id):
+    """
+    Get progress for document-based learning session
+    
+    GET /api/document_learning/{session_id}/progress/
+    """
+    try:
+        from .models import ChatSession, Document
+        
+        # Get session
+        try:
+            session = ChatSession.objects.get(id=session_id, student=request.user)
+        except ChatSession.DoesNotExist:
+            return Response({'error': 'Learning session not found'}, status=404)
+        
+        # Verify this is a document-based session
+        metadata = session.get_session_metadata()
+        if not metadata.get('is_document_based'):
+            return Response({'error': 'This is not a document-based learning session'}, status=400)
+        
+        # Get document info
+        document_id = metadata.get('document_id')
+        document = Document.objects.get(id=document_id)
+        
+        question_ids = metadata.get('question_ids', [])
+        
+        return Response({
+            'session_id': session.id,
+            'document_title': document.title,
+            'progress': {
+                'current': session.current_question_index,
+                'total': len(question_ids),
+                'percentage': round((session.current_question_index / len(question_ids)) * 100, 1) if question_ids else 0
+            },
+            'is_completed': session.is_completed,
+            'started_at': session.started_at,
+            'difficulty_levels': metadata.get('difficulty_levels', [])
+        })
+        
+    except Exception as e:
+        print(f"❌ Error getting document learning progress: {e}")
+        return Response({
+            'error': str(e),
+            'message': 'Failed to get progress'
+        }, status=500)
+
+
+# ===================================================================
+# 🎓 INTERACTIVE EXAM SYSTEM - SIMPLIFIED START
+# ===================================================================
+
+# @api_view(['POST'])
+# @permission_classes([IsAuthenticated])
+# def start_interactive_exam_duplicate(request):
+#     """
+#     🎓 Start a new Interactive Exam Session (DUPLICATE - DISABLED)
+#     
+#     This creates a generic exam session that generates questions from teacher documents
+#     and provides an interactive chat-based exam experience.
+#     """
+#     if request.user.role != 'student':
+#         return Response({'error': 'Only students can start interactive exams'}, status=403)
+    
+    try:
+        from .models import TestSession
+        import json
+        from django.utils import timezone
+        
+        print(f"🎓 Starting interactive exam for student: {request.user.username}")
+        
+        # Check if student already has an active exam session
+        existing_session = TestSession.objects.filter(
+            student=request.user,
+            test_type='exam',
+            is_completed=False
+        ).first()
+        
+        if existing_session:
+            return Response({
+                'error': 'You already have an active exam session. Please complete it first.',
+                'session_id': existing_session.id
+            }, status=400)
+        
+        # Create new interactive exam session
+        session = TestSession.objects.create(
+            student=request.user,
+            test_type='exam',
+            difficulty_level='3',  # Default medium difficulty
+            subject='course_content',
+            total_questions=10,  # Standard exam length
+            time_limit_minutes=60  # 1 hour time limit
+        )
+        
+        print(f"✅ Created interactive exam session: {session.id}")
+        
+        # Generate questions from teacher documents
+        print("📚 Generating questions from teacher documents...")
+        result = _generate_exam_questions_from_docs(request.user, 10)
+        
+        if 'error' in result:
+            # Delete the session if question generation failed
+            session.delete()
+            return Response({
+                'error': result['error'],
+                'details': 'Failed to generate questions from teacher materials'
+            }, status=400)
+        
+        # Store generated questions in session notes
+        notes = {
+            'questions': result['questions'],
+            'vector_store_id': result.get('vector_store_id', ''),
+            'source_documents': result.get('source_documents', []),
+            'question_index': 0,
+            'attempts_for_current': 0,
+            'score_correct': 0,
+            'exam_start_time': timezone.now().isoformat(),
+            'generation_method': result.get('generation_method', 'teacher_documents'),
+            'teacher_documents_used': result.get('teacher_documents_used', 0)
+        }
+        
+        session.notes = json.dumps(notes)
+        session.save()
+        
+        print(f"✅ Questions generated and stored. Source: {result.get('generation_method')}")
+        print(f"📚 Using {result.get('teacher_documents_used', 0)} teacher documents")
+        
+        # Get the first question
+        questions = result['questions']
+        if not questions:
+            session.delete()
+            return Response({
+                'error': 'No questions were generated from teacher materials'
+            }, status=400)
+        
+        first_question = questions[0]
+        
+        # Format first question for display
+        question_text = first_question.get('question_text', '')
+        
+        # Add multiple choice options if available
+        options = []
+        if first_question.get('options'):
+            options_dict = first_question['options']
+            for key in ['A', 'B', 'C', 'D']:
+                if key in options_dict and options_dict[key]:
+                    options.append(f"{key}) {options_dict[key]}")
+        
+        if options:
+            question_display = f"{question_text}\n\n" + "\n".join(options)
+        else:
+            question_display = question_text
+        
+        # Create welcome message
+        source_info = ""
+        if result.get('source_documents'):
+            doc_titles = [doc['title'] for doc in result['source_documents']]
+            source_info = f"\n\n📚 **Questions based on:** {', '.join(doc_titles)}"
+        
+        welcome_message = f"""🎓 **Welcome to your Interactive Exam!**
+
+**Exam Details:**
+• **Questions:** 10 questions
+• **Time Limit:** 60 minutes
+• **Source:** Teacher course materials
+• **Format:** Interactive with hints and guidance{source_info}
+
+**Instructions:**
+• Answer each question carefully
+• You can get hints if you need help
+• Type your answer and press send
+• For multiple choice, use the letter (A, B, C, D)
+
+---
+
+**Question 1 of 10:**
+
+{question_display}
+
+Please provide your answer."""
+        
+        return Response({
+            'success': True,
+            'session_id': session.id,
+            'exam_info': {
+                'total_questions': 10,
+                'time_limit_minutes': 60,
+                'current_question': 1,
+                'teacher_documents_used': result.get('teacher_documents_used', 0),
+                'source_documents': result.get('source_documents', [])
+            },
+            'welcome_message': welcome_message,
+            'first_question': {
+                'id': first_question.get('id', 'generated_1'),
+                'question_number': 1,
+                'question_text': question_text,
+                'question_type': first_question.get('question_type', 'open'),
+                'has_options': len(options) > 0,
+                'options': options
+            },
+            'instruction': 'The interactive exam has started! Please respond with your answer to Question 1.'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error starting interactive exam: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'error': f'Failed to start interactive exam: {str(e)}',
+            'details': 'Please try again or contact support if the problem persists'
+        }, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def generate_questions_from_document(request):
+    """
+    API מהיר ליצירת שאלות ממסמך עבור מרצה
+    """
+    if request.user.role != 'teacher':
+        return Response({'error': 'רק מרצים יכולים ליצור שאלות'}, status=403)
+    
+    try:
+        document_id = request.data.get('document_id')
+        num_questions = request.data.get('num_questions', 10)
+        difficulty = request.data.get('difficulty', 'mixed')  # basic, intermediate, advanced, mixed
+        
+        if not document_id:
+            return Response({'error': 'חסר document_id'}, status=400)
+        
+        # קבלת המסמך
+        try:
+            document = Document.objects.get(id=document_id, uploaded_by=request.user)
+        except Document.DoesNotExist:
+            return Response({'error': 'המסמך לא נמצא או שאין לך הרשאה'}, status=404)
+        
+        if not document.extracted_text:
+            return Response({'error': 'המסמך לא עובד או לא קיים טקסט'}, status=400)
+        
+        print(f"🚀 יוצר שאלות מהיר מהמסמך: {document.title}")
+        
+        # יצירת שאלות מהירה
+        from .gemini_client import gemini_client
+        
+        if not gemini_client:
+            return Response({'error': 'מערכת AI לא זמינה'}, status=503)
+        
+        questions = gemini_client.generate_questions_fast(
+            document.extracted_text,
+            num_questions=num_questions,
+            difficulty=difficulty
+        )
+        
+        if not questions:
+            return Response({'error': 'לא הצלחתי ליצור שאלות'}, status=500)
+        
+        # שמירת השאלות למסד נתונים
+        saved_questions = []
+        for q_data in questions:
+            # יצירת QuestionBank חדש
+            question_bank = QuestionBank.objects.create(
+                question_text=q_data.get('question_text', ''),
+                question_type='multiple_choice',
+                options=q_data.get('options', {}),
+                correct_answer=q_data.get('correct_answer', 'A'),
+                explanation=f"נוצר אוטומטית מהמסמך: {document.title}",
+                difficulty=difficulty,
+                created_by=request.user
+            )
+            
+            saved_questions.append({
+                'id': question_bank.id,
+                'question_text': question_bank.question_text,
+                'options': question_bank.options,
+                'correct_answer': question_bank.correct_answer,
+                'difficulty': difficulty
+            })
+        
+        # עדכון מספר השאלות שנוצרו מהמסמך
+        document.questions_generated_count = document.questions_generated_count + len(saved_questions)
+        document.save()
+        
+        return Response({
+            'success': True,
+            'message': f'נוצרו {len(saved_questions)} שאלות בהצלחה',
+            'questions': saved_questions,
+            'document_name': document.title,
+            'source': 'gemini_2_0_fast',
+            'total_questions_from_document': document.questions_generated_count
+        })
+        
+    except Exception as e:
+        print(f"❌ שגיאה ביצירת שאלות: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'error': str(e)}, status=500)

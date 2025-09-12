@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import ChatbotQuestions from "./ChatbotQuestions";
 import StudentClasses from "./StudentClasses";
-import LevelTest from "./LevelTest";
+import InteractiveExam from "./InteractiveExam";
 import CheckLevel from "./CheckLevel";
+import InteractiveLearning from "./InteractiveLearning";
 import { Box, Tabs, Tab, Paper, Container, styled } from '@mui/material';
-import { Chat, Schedule, Assignment, Timeline, TrendingUp } from '@mui/icons-material';
+import { Chat, Schedule, Assignment, Timeline, TrendingUp, Psychology } from '@mui/icons-material';
 
 // Custom styled components with modern glassmorphism design
 const StyledBox = styled(Box)(({ theme }) => ({
@@ -111,8 +112,13 @@ const StudentDashboard = () => {
               iconPosition="top"
             />
             <Tab 
+              icon={<Psychology sx={{ fontSize: '1.5rem' }} />} 
+              label="Interactive Learning" 
+              iconPosition="top"
+            />
+            <Tab 
               icon={<Assignment sx={{ fontSize: '1.5rem' }} />} 
-              label="Level Test" 
+              label="Interactive Exam" 
               iconPosition="top"
             />
             <Tab 
@@ -140,11 +146,17 @@ const StudentDashboard = () => {
 
         <TabPanel value={activeTab} index={2}>
           <Box position="absolute" inset={0}>
-            <LevelTest />
+            <InteractiveLearning />
           </Box>
         </TabPanel>
 
         <TabPanel value={activeTab} index={3}>
+          <Box position="absolute" inset={0}>
+            <InteractiveExam />
+          </Box>
+        </TabPanel>
+
+        <TabPanel value={activeTab} index={4}>
           <Box position="absolute" inset={0}>
             <CheckLevel />
           </Box>

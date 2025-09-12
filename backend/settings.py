@@ -1,5 +1,9 @@
 from pathlib import Path
 import os  # Import os module
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -178,5 +182,12 @@ OCR_SETTINGS = {
     'OCR_LANGUAGES': 'eng',   # Default OCR language(s)
     'OCR_CONFIDENCE_THRESHOLD': 30,  # Minimum confidence for text regions
 }
+
+# Google Gemini AI Configuration
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'your_api_key_here')
+GEMINI_MODEL = "gemini-2.5-flash"  # החדש והמשופר ביותר - עם thinking capabilities
+
+# AI Provider Settings
+AI_PROVIDER = 'gemini'  # 'ollama' או 'gemini'
 
 print("🔧 Django settings loaded successfully")

@@ -338,6 +338,25 @@ class ChatSession(models.Model):
     confusion_indicators = models.IntegerField(default=0, help_text="Count of confusion signals")
     breakthrough_moments = models.IntegerField(default=0, help_text="Major understanding breakthroughs")
     
+    # Document-based learning support
+    session_metadata = models.TextField(default='{}', help_text="Additional session data as JSON string")
+    current_question_index = models.IntegerField(default=0, help_text="Current position in question sequence")
+    total_questions = models.IntegerField(default=0, help_text="Total questions in this session")
+    is_completed = models.BooleanField(default=False, help_text="Whether the session is completed")
+    
+    def get_session_metadata(self):
+        """Get session metadata as dict"""
+        import json
+        try:
+            return json.loads(self.session_metadata)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    
+    def set_session_metadata(self, data):
+        """Set session metadata from dict"""
+        import json
+        self.session_metadata = json.dumps(data)
+    
     def __str__(self):
         return f"{self.student.username} - {self.topic} ({self.session_type})"
     
@@ -763,6 +782,149 @@ class ExamAnswerAttempt(models.Model):
     
     def __str__(self):
         return f"Attempt {self.attempt_number} by {self.student.username} - Q{self.question.id} - {'✓' if self.is_correct else '✗'}"
+
+
+# ====================
+# CLEAN INTERACTIVE EXAM SYSTEM MODELS
+# ====================
+
+class InteractiveExam(models.Model):
+    """
+    An exam created from teacher-uploaded documents
+    This is the source of truth for questions - only from teacher uploads
+    """
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'teacher'})
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, help_text="Source document for questions")
+    
+    # Exam configuration
+    total_questions = models.IntegerField(default=10)
+    time_limit_minutes = models.IntegerField(null=True, blank=True)
+    max_attempts_per_question = models.IntegerField(default=3)
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Interactive Exam: {self.title} ({self.total_questions} questions)"
+    
+    class Meta:
+        ordering = ['-created_at']
+
+
+class InteractiveExamQuestion(models.Model):
+    """
+    Questions for the interactive exam - generated from teacher documents
+    """
+    exam = models.ForeignKey(InteractiveExam, on_delete=models.CASCADE, related_name='questions')
+    question_text = models.TextField()
+    correct_answer = models.TextField()
+    hint_1 = models.TextField(blank=True, null=True, help_text="First hint for wrong answer")
+    hint_2 = models.TextField(blank=True, null=True, help_text="Second hint for wrong answer")
+    hint_3 = models.TextField(blank=True, null=True, help_text="Third hint for wrong answer")
+    
+    # Question metadata
+    question_type = models.CharField(max_length=50, default='open_ended')
+    difficulty = models.CharField(max_length=20, default='medium')
+    order_index = models.IntegerField(default=1)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Q{self.order_index}: {self.question_text[:50]}..."
+    
+    class Meta:
+        ordering = ['order_index']
+
+
+class StudentExamSession(models.Model):
+    """
+    A student's session taking an interactive exam
+    Tracks progress, attempts, and completion status
+    """
+    student = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'student'})
+    exam = models.ForeignKey(InteractiveExam, on_delete=models.CASCADE, related_name='student_sessions')
+    
+    # Session status
+    STATUS_CHOICES = [
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('abandoned', 'Abandoned'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='in_progress')
+    
+    # Progress tracking
+    current_question_index = models.IntegerField(default=0)
+    total_questions = models.IntegerField()
+    questions_answered = models.IntegerField(default=0)
+    correct_answers = models.IntegerField(default=0)
+    
+    # Timing
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    last_activity = models.DateTimeField(auto_now=True)
+    
+    # Results
+    final_score = models.FloatField(null=True, blank=True)
+    total_time_minutes = models.FloatField(null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.exam.title} ({self.status})"
+    
+    class Meta:
+        ordering = ['-started_at']
+        unique_together = ['student', 'exam']
+
+
+class StudentExamAnswer(models.Model):
+    """
+    A student's answer to a specific question in an exam session
+    Tracks all attempts and final result
+    """
+    session = models.ForeignKey(StudentExamSession, on_delete=models.CASCADE, related_name='answers')
+    question = models.ForeignKey(InteractiveExamQuestion, on_delete=models.CASCADE)
+    
+    # Answer details
+    final_answer = models.TextField(blank=True, null=True)
+    is_correct = models.BooleanField(default=False)
+    attempts_used = models.IntegerField(default=0)
+    
+    # Timing
+    time_taken_seconds = models.IntegerField(null=True, blank=True)
+    answered_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.session.student.username} - Q{self.question.order_index} - {'✓' if self.is_correct else '✗'}"
+    
+    class Meta:
+        unique_together = ['session', 'question']
+        ordering = ['question__order_index']
+
+
+class StudentExamAttempt(models.Model):
+    """
+    Individual attempt at answering a question
+    Tracks each of the 3 attempts per question
+    """
+    answer = models.ForeignKey(StudentExamAnswer, on_delete=models.CASCADE, related_name='attempts')
+    attempt_number = models.IntegerField()  # 1, 2, or 3
+    answer_text = models.TextField()
+    is_correct = models.BooleanField(default=False)
+    hint_shown = models.TextField(blank=True, null=True)
+    
+    # Timing
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    time_taken_seconds = models.IntegerField(null=True, blank=True)
+    
+    def __str__(self):
+        return f"Attempt {self.attempt_number} - {'✓' if self.is_correct else '✗'}"
+    
+    class Meta:
+        unique_together = ['answer', 'attempt_number']
+        ordering = ['attempt_number']
 
 
 # ====================

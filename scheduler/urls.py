@@ -26,8 +26,17 @@ from .views import (
     # TASK 3.2: Exam Answer Collection
     submit_exam_answer, get_exam_progress,
     # Interactive Exam Learning with OLAMA
-    submit_interactive_exam_answer, get_interactive_exam_progress
+    submit_interactive_exam_answer, get_interactive_exam_progress,
+    # Document-Based Interactive Learning
+    start_document_based_learning, submit_document_learning_answer, get_document_learning_progress,
+    # NEW: Interactive Exam System (Chat-based)
+    start_interactive_exam, interactive_exam_chat, get_exam_progress,
+    # Fast Question Generation
+    generate_questions_from_document
 )
+
+# Import clean interactive exam views
+from .interactive_exam_views import start_exam as clean_start_exam, submit_answer as clean_submit_answer, get_exam_state, finish_exam
 
 # Create a router and register our viewset with it
 router = DefaultRouter()
@@ -82,6 +91,11 @@ urlpatterns = [
     path('exams/results/<int:test_session_id>/', get_exam_results, name='get_exam_results'),  # View exam results
     path('exams/<int:exam_id>/export/', export_exam_results, name='export_exam_results'),  # Export results
     
+    # Interactive Exam (General - uses teacher documents)
+    path('exam/start/', start_interactive_exam, name='start_interactive_exam'),  # Generic interactive exam
+    path('exam/chat/<int:session_id>/', handle_exam_chat_interaction, name='interactive_exam_chat'),
+    path('exam/progress/<int:session_id>/', get_interactive_exam_progress, name='interactive_exam_progress'),
+    
     # 🎯 Phase 4: Analysis and Teacher Dashboard
     path('analytics/student/<int:student_id>/', analyze_student_performance, name='analyze_student_performance'),
     path('analytics/topics/', topic_level_analysis, name='topic_level_analysis'),
@@ -120,6 +134,20 @@ urlpatterns = [
     # 🧠 Interactive Exam Learning with OLAMA Integration
     path('interactive-exam-answers/', submit_interactive_exam_answer, name='submit_interactive_exam_answer'),
     path('interactive-exam-progress/<int:exam_session_id>/', get_interactive_exam_progress, name='get_interactive_exam_progress'),
+    
+    # 📚 Document-Based Interactive Learning System
+    path('start_document_learning/', start_document_based_learning, name='start_document_based_learning'),
+    path('document_learning/<int:session_id>/answer/', submit_document_learning_answer, name='submit_document_learning_answer'),
+    path('document_learning/<int:session_id>/progress/', get_document_learning_progress, name='get_document_learning_progress'),
+    
+    # 🎓 CLEAN INTERACTIVE EXAM SYSTEM - Questions from Teacher Documents Only
+    path('clean-exam/start/', clean_start_exam, name='clean_start_exam'),
+    path('clean-exam/answer/', clean_submit_answer, name='clean_submit_answer'),
+    path('clean-exam/state/', get_exam_state, name='get_exam_state'),
+    path('clean-exam/finish/', finish_exam, name='finish_exam'),
+    
+    # 🚀 Fast Question Generation for Teachers
+    path('generate_questions_from_document/', generate_questions_from_document, name='generate_questions_from_document'),
     
     # Router endpoints (lessons)
     path('', include(router.urls)),
