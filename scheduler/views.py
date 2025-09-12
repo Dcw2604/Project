@@ -6273,6 +6273,251 @@ def export_dashboard_data(request):
 # INTERACTIVE LEARNING & SOCRATIC TUTORING SYSTEM
 # =================
 
+@api_view(['GET'])
+@permission_classes([])  # Allow anonymous access for student tests
+def get_test_questions(request):
+    """Get algorithm questions for student level tests from teacher-generated question bank"""
+    try:
+        from .models import QuestionBank
+        from .serializers import QuestionBankSerializer
+        
+        # Get query parameters
+        difficulty_level = request.GET.get('difficulty_level', 'easy')  # Default to easy
+        num_questions = int(request.GET.get('num_questions', 10))
+        subject = request.GET.get('subject', 'algorithms')
+        
+        # Get approved algorithm questions from all teachers
+        questions = QuestionBank.objects.filter(
+            is_approved=True,
+            subject=subject
+        ).order_by('?')  # Random order
+        
+        # Filter by difficulty level if specified
+        if difficulty_level:
+            questions = questions.filter(difficulty_level=difficulty_level)
+        
+        # Limit the number of questions
+        questions = questions[:num_questions]
+        
+        serializer = QuestionBankSerializer(questions, many=True)
+        
+        # Format questions for the new open-ended test interface
+        formatted_questions = []
+        for q in serializer.data:
+            formatted_question = {
+                'id': q['id'],
+                'question': q['question_text'],
+                'type': q.get('question_type', 'open_ended'),
+                'subject': q.get('subject', 'algorithms'),
+                'difficulty': q['difficulty_level'],
+                'expected_approach': q.get('expected_approach', ''),
+                'key_concepts': q.get('key_concepts', ''),
+                'hints': q.get('hints', ''),
+                'sample_solution': q.get('sample_solution', ''),
+                'correct_answer': q['correct_answer'],
+                'explanation': q.get('explanation', '')
+            }
+            formatted_questions.append(formatted_question)
+        
+        return Response({
+            'questions': formatted_questions,
+            'total_available': QuestionBank.objects.filter(is_approved=True, subject=subject).count(),
+            'difficulty_level': difficulty_level,
+            'subject': subject,
+            'num_questions': len(formatted_questions)
+        })
+        
+    except Exception as e:
+        print(f"Error getting test questions: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def get_ai_hint(request):
+    """Get AI-generated hint for struggling students during algorithm questions"""
+    try:
+        from .models import QuestionBank, TestHint, TestSession
+        
+        data = request.data
+        user = request.user
+        question_id = data.get('question_id')
+        student_input = data.get('student_input', '')
+        hint_level = data.get('hint_level', 1)  # Progressive hints: 1=basic, 2=medium, 3=detailed
+        test_session_id = data.get('test_session_id')
+        
+        # Get the question
+        try:
+            question = QuestionBank.objects.get(id=question_id)
+        except QuestionBank.DoesNotExist:
+            return Response({'error': 'Question not found'}, status=404)
+        
+        # Get test session if provided
+        test_session = None
+        if test_session_id:
+            try:
+                test_session = TestSession.objects.get(id=test_session_id, student=user)
+            except TestSession.DoesNotExist:
+                pass
+        
+        # Generate contextual hint based on the question and student input
+        hint_text = ""
+        
+        if hint_level == 1:
+            # Basic hint - guide toward the approach
+            if question.key_concepts:
+                hint_text = f"Think about these key concepts: {question.key_concepts}. "
+            if question.expected_approach:
+                approach_words = question.expected_approach.split()[:10]  # First 10 words
+                hint_text += f"Consider this approach: {' '.join(approach_words)}..."
+        
+        elif hint_level == 2:
+            # Medium hint - more specific guidance
+            if question.expected_approach:
+                approach_words = question.expected_approach.split()[:20]  # First 20 words
+                hint_text = f"Here's a more detailed approach: {' '.join(approach_words)}..."
+            if question.hints:
+                hint_text += f" Additional hint: {question.hints}"
+        
+        elif hint_level >= 3:
+            # Detailed hint - show sample approach but not full solution
+            if question.sample_solution:
+                solution_lines = question.sample_solution.split('\n')[:3]  # First 3 lines
+                hint_text = f"Here's the beginning of a solution approach:\n{chr(10).join(solution_lines)}..."
+            else:
+                hint_text = question.hints or question.expected_approach or "Consider breaking the problem into smaller steps."
+        
+        if not hint_text:
+            hint_text = "Try to break down the problem step by step. What is the main goal of this algorithm?"
+        
+        # Save the hint to track student progress
+        if test_session:
+            TestHint.objects.create(
+                student=user,
+                question=question,
+                test_session=test_session,
+                hint_text=hint_text,
+                hint_level=hint_level,
+                student_input=student_input
+            )
+        
+        return Response({
+            'hint': hint_text,
+            'hint_level': hint_level,
+            'question_id': question_id,
+            'max_hints_reached': hint_level >= 3
+        })
+        
+    except Exception as e:
+        print(f"Error generating AI hint: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def evaluate_answer(request):
+    """Evaluate student's open-ended answer using AI and provide feedback"""
+    try:
+        from .models import QuestionBank, StudentAnswer, TestSession
+        
+        data = request.data
+        user = request.user
+        question_id = data.get('question_id')
+        student_answer = data.get('answer', '')
+        test_session_id = data.get('test_session_id')
+        
+        # Get the question
+        try:
+            question = QuestionBank.objects.get(id=question_id)
+        except QuestionBank.DoesNotExist:
+            return Response({'error': 'Question not found'}, status=404)
+        
+        # Get test session if provided
+        test_session = None
+        if test_session_id:
+            try:
+                test_session = TestSession.objects.get(id=test_session_id, student=user)
+            except TestSession.DoesNotExist:
+                pass
+        
+        # Simple evaluation logic (can be enhanced with AI)
+        is_correct = False
+        feedback = ""
+        
+        # Basic keyword matching for now - can be enhanced with LLM evaluation
+        correct_answer_lower = question.correct_answer.lower()
+        student_answer_lower = student_answer.lower()
+        
+        # Check for key concepts or approaches
+        if question.key_concepts:
+            key_concepts = [concept.strip().lower() for concept in question.key_concepts.split(',')]
+            concepts_mentioned = sum(1 for concept in key_concepts if concept in student_answer_lower)
+            concept_score = concepts_mentioned / len(key_concepts) if key_concepts else 0
+        else:
+            concept_score = 0
+        
+        # Simple scoring - can be enhanced
+        if concept_score >= 0.7 or any(word in student_answer_lower for word in correct_answer_lower.split()[:5]):
+            is_correct = True
+            feedback = "Good job! Your answer demonstrates understanding of the key concepts."
+        else:
+            feedback = "Your answer needs more work. Consider the key algorithmic concepts for this problem."
+        
+        # Save the answer
+        if test_session:
+            StudentAnswer.objects.create(
+                test_session=test_session,
+                question=question,
+                student=user,
+                answer_text=student_answer,
+                is_correct=is_correct
+            )
+        
+        return Response({
+            'is_correct': is_correct,
+            'feedback': feedback,
+            'question_id': question_id,
+            'expected_approach': question.expected_approach,
+            'explanation': question.explanation
+        })
+        
+    except Exception as e:
+        print(f"Error evaluating answer: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_test_results(request):
+    """Submit test results for student level assessment"""
+    try:
+        from .models import StudentTestResult
+        
+        data = request.data
+        user = request.user
+        
+        # Create or update test result
+        test_result = StudentTestResult.objects.create(
+            student=user,
+            difficulty_level=data.get('difficulty_level'),
+            total_questions=data.get('total_questions'),
+            correct_answers=data.get('correct_answers'),
+            time_taken_seconds=data.get('time_taken_seconds'),
+            percentage_score=data.get('percentage_score'),
+            assessed_level=data.get('assessed_level'),
+            questions_used=data.get('questions_used', []),  # Store question IDs used
+        )
+        
+        return Response({
+            'success': True,
+            'test_result_id': test_result.id,
+            'message': 'Test results saved successfully'
+        })
+        
+    except Exception as e:
+        print(f"Error saving test results: {e}")
+        return Response({'error': str(e)}, status=500)
+
 from textblob import TextBlob
 from .models import ChatSession, ConversationMessage, ConversationInsight, LearningPath, QuestionBank, Exam
 from .serializers import (
@@ -8952,10 +9197,11 @@ def create_exam_session(request):
         # Start with manually selected questions
         selected_questions = []
         if selected_question_ids:
-            # Validate and get selected questions (ensuring they're chat-generated)
+            # Validate and get selected questions (ensuring they're chat-generated for this user)
             selected_questions = list(QuestionBank.objects.filter(
                 id__in=selected_question_ids,
-                is_generated=True  # Only chat-generated questions
+                is_generated=True,  # Only chat-generated questions
+                document__uploaded_by=created_by_user  # Only questions from documents uploaded by this user
             ))
             
             if len(selected_questions) != len(selected_question_ids):
@@ -8971,7 +9217,8 @@ def create_exam_session(request):
         if remaining_needed > 0:
             # Get pool of available questions (excluding already selected)
             question_pool = QuestionBank.objects.filter(
-                is_generated=True  # Only chat-generated questions
+                is_generated=True,  # Only chat-generated questions
+                document__uploaded_by=created_by_user  # Only questions from documents uploaded by this user
             ).exclude(
                 id__in=selected_question_ids
             )
@@ -9100,23 +9347,162 @@ def get_exam_session(request, session_id):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_exam_sessions(request):
-    """List all exam sessions created by the teacher"""
-    if request.user.role != 'teacher':
-        return Response({'error': 'Only teachers can view exam sessions'}, status=403)
-    
+    """List exam sessions - for teachers: all their created sessions, for students: available published sessions"""
     try:
-        exam_sessions = ExamSession.objects.filter(
-            created_by=request.user
-        ).order_by('-created_at')
+        if request.user.role == 'teacher':
+            # Teachers see all their created exam sessions
+            exam_sessions = ExamSession.objects.filter(
+                created_by=request.user
+            ).order_by('-created_at')
+        else:
+            # Students see published exam sessions they can take
+            exam_sessions = ExamSession.objects.filter(
+                is_published=True
+            ).order_by('-created_at')
         
         serializer = ExamSessionSerializer(exam_sessions, many=True)
         return Response({
             'exam_sessions': serializer.data,
-            'total_count': exam_sessions.count()
+            'total_count': len(exam_sessions) if request.user.role == 'student' else exam_sessions.count()
         })
         
     except Exception as e:
         print(f"Error listing exam sessions: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def start_exam_session(request, session_id):
+    """Start an exam session for a student"""
+    try:
+        exam_session = ExamSession.objects.get(id=session_id)
+        
+        # Check if student can start this exam
+        if not exam_session.is_published:
+            return Response({'error': 'Exam is not published'}, status=400)
+        
+        # Get exam questions for the student
+        exam_questions = ExamSessionQuestion.objects.filter(
+            exam_session=exam_session
+        ).order_by('order_index')
+        
+        questions_data = []
+        for eq in exam_questions:
+            question_data = {
+                'id': eq.question.id,
+                'question_text': eq.question.question_text,
+                'options': [
+                    eq.question.option_a,
+                    eq.question.option_b,
+                    eq.question.option_c,
+                    eq.question.option_d
+                ],
+                'order_index': eq.order_index
+            }
+            questions_data.append(question_data)
+        
+        return Response({
+            'exam_session': {
+                'id': exam_session.id,
+                'title': exam_session.title,
+                'description': exam_session.description,
+                'duration_minutes': exam_session.duration_minutes,
+                'total_questions': len(questions_data)
+            },
+            'questions': questions_data
+        })
+        
+    except ExamSession.DoesNotExist:
+        return Response({'error': 'Exam session not found'}, status=404)
+    except Exception as e:
+        print(f"Error starting exam session: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_exam_session(request, session_id):
+    """Delete an exam session (teacher only)"""
+    if request.user.role != 'teacher':
+        return Response({'error': 'Only teachers can delete exam sessions'}, status=403)
+    
+    try:
+        exam_session = ExamSession.objects.get(id=session_id, created_by=request.user)
+        exam_session.delete()
+        
+        return Response({'message': 'Exam session deleted successfully'})
+        
+    except ExamSession.DoesNotExist:
+        return Response({'error': 'Exam session not found'}, status=404)
+    except Exception as e:
+        print(f"Error deleting exam session: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_exam_session_details(request, session_id):
+    """Get detailed exam session information including questions"""
+    try:
+        # Get the exam session
+        exam_session = ExamSession.objects.get(id=session_id)
+        
+        # Check permissions - only creator can view details
+        if request.user.role == 'teacher' and exam_session.created_by != request.user:
+            return Response({'error': 'Access denied'}, status=403)
+        
+        # Get linked questions
+        exam_questions = ExamSessionQuestion.objects.filter(
+            exam_session=exam_session
+        ).select_related('question').order_by('order_index')
+        
+        print(f"DEBUG: Found {exam_questions.count()} questions for exam {session_id}")
+        
+        # Serialize exam session
+        exam_data = {
+            'id': exam_session.id,
+            'title': exam_session.title,
+            'description': exam_session.description,
+            'num_questions': exam_session.num_questions,
+            'time_limit_seconds': exam_session.time_limit_seconds,
+            'is_published': exam_session.is_published,
+            'random_topic_distribution': exam_session.random_topic_distribution,
+            'created_at': exam_session.created_at.isoformat(),
+            'created_by': exam_session.created_by.username,
+            'total_questions': exam_questions.count()
+        }
+        
+        # Serialize questions
+        questions_data = []
+        for exam_question in exam_questions:
+            question = exam_question.question
+            questions_data.append({
+                'id': question.id,
+                'question_text': question.question_text,
+                'option_a': question.option_a,
+                'option_b': question.option_b,
+                'option_c': question.option_c,
+                'option_d': question.option_d,
+                'correct_answer': question.correct_answer,
+                'difficulty_level': question.difficulty_level,
+                'topic': question.topic.name if question.topic else None,
+                'order_index': exam_question.order_index
+            })
+        
+        print(f"DEBUG: Returning {len(questions_data)} questions for exam details")
+        
+        return Response({
+            'success': True,
+            'exam_session': exam_data,
+            'questions': questions_data
+        })
+        
+    except ExamSession.DoesNotExist:
+        print(f"ERROR: Exam session {session_id} not found")
+        return Response({'error': 'Exam session not found'}, status=404)
+    except Exception as e:
+        print(f"ERROR: Failed to get exam details for {session_id}: {str(e)}")
         return Response({'error': str(e)}, status=500)
 
 

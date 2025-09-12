@@ -1,9 +1,8 @@
 // API service for handling backend communication with proper CORS and auth setup
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
-// Default fetch configuration with credentials for session auth
+// Default fetch configuration with token auth
 const defaultFetchConfig = {
-  credentials: 'include', // Include cookies for session authentication
   headers: {
     'Content-Type': 'application/json',
   },
@@ -22,6 +21,9 @@ const getCSRFToken = () => {
 const apiRequest = async (endpoint, options = {}) => {
   const url = `${API_BASE_URL}${endpoint}`;
   
+  // Get auth token
+  const token = localStorage.getItem('authToken');
+  
   // Merge default config with provided options
   const config = {
     ...defaultFetchConfig,
@@ -31,6 +33,11 @@ const apiRequest = async (endpoint, options = {}) => {
       ...options.headers,
     },
   };
+
+  // Add auth token if available
+  if (token) {
+    config.headers['Authorization'] = `Token ${token}`;
+  }
 
   // Add CSRF token for unsafe methods
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(config.method?.toUpperCase())) {
@@ -88,6 +95,11 @@ export const examSessionAPI = {
   
   // GET /api/exam-sessions/{id}/ - Get specific exam session
   get: (id) => apiRequest(`/exam-sessions/${id}/`),
+  
+  // DELETE /api/exam-sessions/{id}/delete/ - Delete exam session
+  delete: (id) => apiRequest(`/exam-sessions/${id}/delete/`, {
+    method: 'DELETE',
+  }),
 };
 
 // Default export with all APIs

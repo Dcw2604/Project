@@ -49,7 +49,7 @@ import {
 import ManageStudents from './ManageStudents';
 import ManageSchedule from './ManageSchedule';
 import ManageTests from './ManageTests';
-import CreateExamSession from './CreateExamSession';
+import ManageExams from './ManageExams';
 
 const StyledContainer = styled(Container)(({ theme }) => ({
   minHeight: '100vh',
@@ -130,11 +130,6 @@ const TeacherDashboard = () => {
 
   const handleCreateExamSession = () => {
     setActiveTab(4); // Switch to Exam Sessions tab
-  };
-
-  const handleExamSessionSuccess = () => {
-    // Refresh data or show success message
-    // You can add any success handling here
   };
 
   const renderDashboardOverview = () => (
@@ -382,10 +377,8 @@ const TeacherDashboard = () => {
         {activeTab === 2 && <ManageSchedule />}
         {activeTab === 3 && <ManageTests />}
         {activeTab === 4 && (
-          <Box sx={{ p: 3 }}>
-            <CreateExamSession 
-              onSuccess={handleExamSessionSuccess} 
-            />
+          <Box>
+            <ManageExams />
           </Box>
         )}
       </Box>

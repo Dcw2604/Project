@@ -6,19 +6,20 @@ from .views import (
     clear_conversation_memory, user_login, user_logout, test_image_upload,
     delete_document, list_questions, create_question, update_question,
     delete_question, start_test, submit_answer, complete_test, get_test_history,
-    create_test_questions, practice_chat,
+    create_test_questions, practice_chat, get_test_questions, submit_test_results,
+    get_ai_hint, evaluate_answer,  # New AI-powered test endpoints
     create_exam, list_exams, get_exam, assign_students_to_exam, publish_exam, start_exam, start_exam_chat, get_exam_results,
     export_exam_results,
     # Phase 4: Analysis and Teacher Dashboard
     analyze_student_performance, topic_level_analysis, teacher_dashboard, export_dashboard_data,
-    # Interactive Learning & Socratic Tutoring
-    start_interactive_learning_session, interactive_learning_chat, get_learning_session_progress, 
-    end_learning_session, handle_exam_chat_interaction,
-    # NEW: Structured Learning System
+    # Exam Chat Interaction (kept for exam functionality)
+    handle_exam_chat_interaction,
+    # NEW: Structured Learning System (replaces interactive learning)
     start_learning_session, submit_learning_answer, get_learning_progress, 
     teacher_assessment_dashboard, available_learning_topics,
     # TASK 2.1: Exam Session Views
     list_topics, create_exam_session, get_exam_session, list_exam_sessions,
+    start_exam_session, delete_exam_session, get_exam_session_details,
     # TASK 2.2: Exam Config Views
     ExamConfigViewSet,
     # Document status tracking
@@ -71,6 +72,7 @@ urlpatterns = [
     path('questions/create_test/', create_test_questions, name="create_test_questions"),  # Test endpoint
     path('questions/<int:question_id>/', update_question, name="update_question"),
     path('questions/<int:question_id>/delete/', delete_question, name="delete_question"),
+    path('questions/test/', get_test_questions, name="get_test_questions"),  # New endpoint for student tests,
     
     # Test endpoints
     path('tests/start/', start_test, name="start_test"),
@@ -78,6 +80,9 @@ urlpatterns = [
     path('tests/practice_chat/', practice_chat, name="practice_chat"),
     path('tests/complete/', complete_test, name="complete_test"),
     path('tests/history/', get_test_history, name="get_test_history"),
+    path('tests/submit_results/', submit_test_results, name="submit_test_results"),  # New endpoint for test results
+    path('tests/get_hint/', get_ai_hint, name="get_ai_hint"),  # AI hint endpoint
+    path('tests/evaluate_answer/', evaluate_answer, name="evaluate_answer"),  # Answer evaluation endpoint
     path('test_image/', test_image_upload, name="test_image_upload"),
 
     # Exam endpoints
@@ -102,11 +107,11 @@ urlpatterns = [
     path('teacher/dashboard/', teacher_dashboard, name='teacher_dashboard'),
     path('teacher/dashboard/export/', export_dashboard_data, name='export_dashboard_data'),
     
-    # 🧠 Interactive Learning & Socratic Tutoring System
-    path('interactive/start/', start_interactive_learning_session, name='start_interactive_learning'),
-    path('interactive/chat/<int:session_id>/', interactive_learning_chat, name='interactive_learning_chat'),
-    path('interactive/progress/<int:session_id>/', get_learning_progress, name='learning_session_progress'),  # Fixed: use structured learning progress
-    path('interactive/end/<int:session_id>/', end_learning_session, name='end_learning_session'),
+    # 🧠 Interactive Learning & Socratic Tutoring System (DEPRECATED - Use Structured Learning)
+    # path('interactive/start/', start_interactive_learning_session, name='start_interactive_learning'),
+    # path('interactive/chat/<int:session_id>/', interactive_learning_chat, name='interactive_learning_chat'),
+    # path('interactive/progress/<int:session_id>/', get_learning_progress, name='learning_session_progress'),  # Fixed: use structured learning progress
+    # path('interactive/end/<int:session_id>/', end_learning_session, name='end_learning_session'),
     path('interactive/exam_chat/<int:session_id>/', handle_exam_chat_interaction, name='exam_chat_interaction'),
     
     # 📚 NEW: Structured Learning System (Replaces Student Practice)
@@ -123,6 +128,9 @@ urlpatterns = [
     path('exam-sessions/', create_exam_session, name='create_exam_session_alias'),  # Frontend expects this path
     path('exam-sessions/list/', list_exam_sessions, name='list_exam_sessions_alias'),  # Additional alias
     path('exam-sessions/<int:session_id>/', get_exam_session, name='get_exam_session_alias'),  # Additional alias
+    path('exam-sessions/<int:session_id>/start/', start_exam_session, name='start_exam_session'),  # NEW: Start exam
+    path('exam-sessions/<int:session_id>/delete/', delete_exam_session, name='delete_exam_session'),  # NEW: Delete exam
+    path('exam-sessions/<int:session_id>/details/', get_exam_session_details, name='get_exam_session_details'),  # NEW: Get exam details
     path('exams/sessions/', create_exam_session, name='create_exam_session'),  # Original path
     path('exams/sessions/list/', list_exam_sessions, name='list_exam_sessions'),
     path('exams/sessions/<int:session_id>/', get_exam_session, name='get_exam_session'),

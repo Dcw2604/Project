@@ -48,7 +48,6 @@ import {
   CloudUpload,
   AutoAwesome
 } from '@mui/icons-material';
-import CreateExamSession from './CreateExamSession';
 
 const StyledCard = styled(Card)(({ theme }) => ({
   background: 'rgba(255, 255, 255, 0.1)',
@@ -75,13 +74,6 @@ if (typeof document !== 'undefined') {
 }
 
 const ManageTests = () => {
-  const [examSessionDialog, setExamSessionDialog] = useState(false);
-  const handleCreateExamSession = (settings) => {
-    // TODO: Send settings to backend to generate exam session
-    console.log('Exam session settings:', settings);
-    setExamSessionDialog(false);
-    // Optionally show a snackbar or alert for success
-  };
   const [activeTab, setActiveTab] = useState(0);
   const [documents, setDocuments] = useState([]);
   const [questions, setQuestions] = useState([]);
@@ -98,6 +90,8 @@ const ManageTests = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStage, setProcessingStage] = useState(0);
+
+  // Document and Question management
   const [processingResults, setProcessingResults] = useState(null);
   const [questionGenerationProgress, setQuestionGenerationProgress] = useState({
     status: '',
@@ -174,6 +168,8 @@ const ManageTests = () => {
     }
   }, [filterLevel]);
 
+  // NEW: Load unified exam sessions
+  // Load all data when component mounts
   useEffect(() => {
     loadDocuments();
     loadQuestions();
@@ -553,49 +549,6 @@ const ManageTests = () => {
     }
   };
 
-  const handleSaveQuestion = async () => {
-    try {
-      const token = localStorage.getItem('authToken');
-      const isEdit = selectedQuestion !== null;
-      const url = isEdit 
-        ? `http://127.0.0.1:8000/api/questions/${selectedQuestion.id}/`
-        : 'http://127.0.0.1:8000/api/questions/create/';
-      
-      const method = isEdit ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Authorization': `Token ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(questionData),
-      });
-
-      if (response.ok) {
-        setQuestionDialog(false);
-        setSelectedQuestion(null);
-        setQuestionData({
-          question_text: '',
-          question_type: 'multiple_choice',
-          difficulty_level: '3',
-          option_a: '',
-          option_b: '',
-          option_c: '',
-          option_d: '',
-          correct_answer: '',
-          explanation: ''
-        });
-        loadQuestions();
-      } else {
-        const errorData = await response.json();
-        alert(`Save failed: ${JSON.stringify(errorData.error)}`);
-      }
-    } catch (error) {
-      alert(`Save error: ${error.message}`);
-    }
-  };
-
   const handleDeleteQuestion = async (questionId) => {
     if (!window.confirm('Are you sure you want to delete this question?')) {
       return;
@@ -635,6 +588,100 @@ const ManageTests = () => {
       explanation: question.explanation || ''
     });
     setQuestionDialog(true);
+  };
+
+  // NEW: Handle saving question (create or update)
+  const handleSaveQuestion = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const isEdit = selectedQuestion && selectedQuestion.id;
+      
+      const method = isEdit ? 'PUT' : 'POST';
+      const url = isEdit 
+        ? `http://127.0.0.1:8000/api/questions/${selectedQuestion.id}/`
+        : 'http://127.0.0.1:8000/api/questions/create/';
+      
+      const response = await fetch(url, {
+        method: method,
+        headers: {
+          'Authorization': `Token ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(questionData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Question saved successfully:', data);
+        
+        // Close dialog and refresh questions
+        setQuestionDialog(false);
+        setSelectedQuestion(null);
+        setQuestionData({
+          document: '',
+          question_text: '',
+          question_type: 'open_ended',
+          difficulty_level: 'normal',
+          option_a: '',
+          option_b: '',
+          option_c: '',
+          option_d: '',
+          correct_answer: '',
+          explanation: ''
+        });
+        
+        // Reload questions to show the updated list
+        loadQuestions();
+        
+        alert(`✅ Question ${isEdit ? 'updated' : 'created'} successfully!`);
+      } else {
+        const errorData = await response.json();
+        console.error('Failed to save question:', errorData);
+        alert(`❌ Failed to ${isEdit ? 'update' : 'create'} question: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error saving question:', error);
+      alert(`❌ Error ${selectedQuestion ? 'updating' : 'creating'} question. Please try again.`);
+    }
+  };
+
+  // NEW: Exam Session Management Functions
+  const handleCreateExamFromDocument = async (documentId, documentTitle) => {
+    try {
+      const examTitle = prompt(`Enter exam title for "${documentTitle}":`, `Exam: ${documentTitle}`);
+      if (!examTitle) return;
+      
+      const numQuestions = prompt('Number of questions (default: 10):', '10');
+      const timeLimit = prompt('Time limit in seconds (optional):', '3600');
+      
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(`http://127.0.0.1:8000/api/documents/${documentId}/create-exam/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: examTitle,
+          description: `Auto-generated exam from document: ${documentTitle}`,
+          num_questions: parseInt(numQuestions) || 10,
+          time_limit_seconds: timeLimit ? parseInt(timeLimit) : null,
+          difficulty_levels: ['easy', 'normal', 'hard']
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        alert(`✅ Exam session "${examTitle}" created successfully!\n\nQuestions selected: ${data.questions_selected}\nExam ID: ${data.exam_session_id}`);
+        // Exam created successfully
+      } else {
+        const errorData = await response.json();
+        alert(`❌ Failed to create exam: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error('Error creating exam from document:', error);
+      alert('❌ Failed to create exam. Please try again.');
+    }
   };
 
   const renderDocumentsTab = () => (
@@ -681,16 +728,43 @@ const ManageTests = () => {
                 <Typography variant="body2" sx={{ opacity: 0.8, mb: 2 }}>
                   Uploaded: {new Date(doc.created_at).toLocaleDateString()}
                 </Typography>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  size="small"
-                  startIcon={<Delete />}
-                  onClick={() => handleDeleteDocument(doc.id)}
-                  sx={{ mt: 1 }}
-                >
-                  Delete
-                </Button>
+                
+                {/* Display questions count if available */}
+                {doc.questions_generated_count > 0 && (
+                  <Typography variant="body2" sx={{ opacity: 0.8, mb: 2, color: '#10B981' }}>
+                    📝 {doc.questions_generated_count} questions generated
+                  </Typography>
+                )}
+
+                <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+                  {doc.processing_status === 'completed' && doc.questions_generated_count > 0 && (
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      size="small"
+                      startIcon={<Add />}
+                      onClick={() => handleCreateExamFromDocument(doc.id, doc.title)}
+                      sx={{ 
+                        background: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)',
+                        borderRadius: '8px',
+                        textTransform: 'none',
+                        fontWeight: 600
+                      }}
+                    >
+                      Create Exam
+                    </Button>
+                  )}
+                  
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    startIcon={<Delete />}
+                    onClick={() => handleDeleteDocument(doc.id)}
+                  >
+                    Delete
+                  </Button>
+                </Stack>
               </CardContent>
             </StyledCard>
           </Grid>
@@ -706,14 +780,6 @@ const ManageTests = () => {
           🧠 Question Bank Management
         </Typography>
         <Stack direction="row" spacing={2}>
-          <Button
-            variant="outlined"
-            color="primary"
-            onClick={() => setExamSessionDialog(true)}
-            sx={{ borderRadius: '12px', fontWeight: 600 }}
-          >
-            Create Exam Session
-          </Button>
           <FormControl size="small" sx={{ minWidth: 120 }}>
             <InputLabel sx={{ color: 'white' }}>Filter Level</InputLabel>
             <Select
@@ -781,16 +847,6 @@ const ManageTests = () => {
         Add Question
       </Button>
       {/* Removed duplicate Create Exam Session button to avoid overflow issues */}
-      {/* Exam Session Creation Dialog */}
-      <Dialog open={examSessionDialog} onClose={() => setExamSessionDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create Exam Session</DialogTitle>
-        <DialogContent>
-          <CreateExamSession onCreate={handleCreateExamSession} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setExamSessionDialog(false)} color="secondary">Cancel</Button>
-        </DialogActions>
-      </Dialog>
         </Stack>
       </Box>
 
