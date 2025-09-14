@@ -4239,6 +4239,39 @@ def calculate_chat_exam_score(exam_session):
     }
 
 
+def generate_questions_in_batches(document_content, document_title, total_count=10, batch_size=5):
+    """Generate questions in batches to avoid response truncation"""
+    try:
+        all_questions = []
+        remaining_count = total_count
+        
+        while remaining_count > 0:
+            current_batch_size = min(batch_size, remaining_count)
+            
+            print(f"🔄 Generating batch of {current_batch_size} questions (remaining: {remaining_count})")
+            
+            batch_questions = generate_questions_with_gemini(
+                document_content, 
+                document_title, 
+                count=current_batch_size
+            )
+            
+            if batch_questions:
+                all_questions.extend(batch_questions)
+                remaining_count -= len(batch_questions)
+                print(f"✅ Generated {len(batch_questions)} questions in this batch")
+            else:
+                print(f"❌ Failed to generate questions in batch, stopping")
+                break
+        
+        print(f"🎯 Total questions generated: {len(all_questions)}")
+        return all_questions[:total_count]  # Return exactly the requested count
+        
+    except Exception as e:
+        print(f"❌ Batch question generation failed: {e}")
+        return []
+
+
 def generate_questions_with_gemini(document_content, document_title, count=10):
     """Generate questions from document using Gemini 2.0 Flash"""
     try:
@@ -4246,33 +4279,39 @@ def generate_questions_with_gemini(document_content, document_title, count=10):
         if not gemini_client:
             raise Exception("Gemini client not available")
         
-        prompt = f"""Based on this document content, generate exactly {count} educational questions with open-ended answers (no multiple choice).
+        prompt = f"""תבסס על תוכן המסמך הבא, צור בדיוק {count} שאלות חינוכיות עם תשובות פתוחות (לא בחירה מרובה).
 
-Document Title: {document_title}
-Document Content: {document_content[:4000]}...
+כותרת המסמך: {document_title}
+תוכן המסמך: {document_content[:4000]}...
 
-For each question, provide:
-1. A clear, specific question
-2. The correct answer based on the document
-3. 3 progressively more specific hints
-4. Keywords that should be in a correct answer
-5. Question type (numeric, text, concept, etc.)
+עבור כל שאלה, ספק:
+1. שאלה ברורה וספציפית
+2. התשובה הנכונה בהתבסס על המסמך
+3. 3 רמזים הולכים ומתמקדים יותר
+4. מילות מפתח שצריכות להיות בתשובה נכונה
+5. סוג השאלה (מספרי, טקסט, מושג, וכו')
+6. רמת קושי (easy/medium/hard)
 
-Format each question as JSON:
+פורמט כל שאלה כ-JSON:
 {{
-  "question": "What is...",
-  "correct_answer": "The answer is...",
+  "question": "מה זה...",
+  "correct_answer": "התשובה היא...",
   "type": "text|numeric|concept",
-  "keywords": ["keyword1", "keyword2"],
+  "keywords": ["מילת מפתח1", "מילת מפתח2"],
   "hints": [
-    "Hint 1: Think about...",
-    "Hint 2: Consider the relationship between...", 
-    "Hint 3: The answer involves..."
+    "רמז 1: חשב על...",
+    "רמז 2: שקול את הקשר בין...", 
+    "רמז 3: התשובה כוללת..."
   ],
   "difficulty": "easy|medium|hard"
 }}
 
-Generate exactly {count} questions covering the most important concepts from the document. Return only the JSON array of questions."""
+חשוב: צור מגוון של רמות קושי:
+- 4 שאלות קלות (easy) - שאלות בסיסיות ופשוטות
+- 3 שאלות בינוניות (medium) - שאלות הדורשות הבנה מעמיקה יותר
+- 3 שאלות קשות (hard) - שאלות מורכבות הדורשות ניתוח מעמיק
+
+צור בדיוק {count} שאלות המכסות את המושגים החשובים ביותר מהמסמך. החזר רק מערך JSON של השאלות."""
 
         response = gemini_client.generate_content(prompt)
         
@@ -4291,8 +4330,9 @@ Generate exactly {count} questions covering the most important concepts from the
         if len(questions) >= count:
             return questions[:count]
         else:
-            # If we don't have enough questions, generate more
-            return ensure_question_count_with_gemini(questions, document_content, document_title, count)
+            # If we don't have enough questions, return what we have
+            print(f"⚠️ Only generated {len(questions)} questions, requested {count}")
+            return questions
             
     except Exception as e:
         print(f"❌ Question generation with Gemini failed: {e}")
@@ -4356,14 +4396,41 @@ def parse_questions_from_gemini_response(response_text):
 
 
 def fix_json_string(json_str):
-    """Fix common JSON formatting issues"""
+    """Fix common JSON formatting issues, especially for Hebrew content"""
     import re
+    
+    # Remove markdown code blocks if present
+    if json_str.startswith('```json'):
+        json_str = json_str[7:]
+    if json_str.startswith('```'):
+        json_str = json_str[3:]
+    if json_str.endswith('```'):
+        json_str = json_str[:-3]
     
     # Remove trailing commas before closing brackets/braces
     json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
     
-    # Don't try to fix quotes - the JSON should be valid as-is
-    # The regex was too aggressive and breaking valid JSON
+    # Fix incomplete strings at the end (common with Hebrew truncation)
+    # Look for unterminated strings and try to close them
+    if json_str.count('"') % 2 != 0:
+        # Odd number of quotes - likely incomplete string
+        if json_str.rstrip().endswith(','):
+            json_str = json_str.rstrip().rstrip(',')
+        json_str += '"'
+    
+    # Try to fix incomplete JSON arrays
+    if json_str.count('[') > json_str.count(']'):
+        json_str += ']'
+    
+    # Try to fix incomplete JSON objects
+    if json_str.count('{') > json_str.count('}'):
+        json_str += '}'
+    
+    # Additional fix for Hebrew content - ensure proper encoding
+    try:
+        json_str = json_str.encode('utf-8').decode('utf-8')
+    except:
+        pass
     
     return json_str
 
@@ -4422,9 +4489,11 @@ Return only a JSON array of {remaining} questions in the same format as before."
 
         response = gemini_client.generate_content(prompt)
         
-        if response and response.text:
-            additional_questions = parse_questions_from_gemini_response(response.text)
-            questions.extend(additional_questions)
+        if response:
+            response_text = response.text if hasattr(response, 'text') else str(response)
+            if response_text:
+                additional_questions = parse_questions_from_gemini_response(response_text)
+                questions.extend(additional_questions)
         
         return questions[:count]
         
@@ -8963,11 +9032,11 @@ def handle_exam_chat_interaction(request, session_id):
         session = ChatSession.objects.get(id=session_id, student=request.user)
         
         if session.session_type != 'exam_chat':
-            return Response({'error': 'This session is not an exam chat session'}, status=400)
+            return Response({'error': 'זה לא מושב מבחן צ\'אט'}, status=400)
         
         student_message = request.data.get('message', '')
         if not student_message:
-            return Response({'error': 'Message is required'}, status=400)
+            return Response({'error': 'נדרש הודעה'}, status=400)
         
         # Use the same Socratic approach but in exam context
         tutor = SocraticTutor()
@@ -8986,12 +9055,12 @@ def handle_exam_chat_interaction(request, session_id):
             shows_discovery=analysis['shows_discovery']
         )
         
-        # Generate exam-appropriate Socratic response
+        # Generate exam-appropriate Socratic response in Hebrew
         if session.current_question:
-            context = f"Working on: {session.current_question.question_text}"
+            context = f"עובד על: {session.current_question.question_text}"
             ai_response = tutor.generate_socratic_response(student_message, context, hint_level=2)
         else:
-            ai_response = "Let's work through this step by step. What's your first thought about this problem?"
+            ai_response = "בואו נעבוד על זה צעד אחר צעד. מה המחשבה הראשונה שלך על הבעיה הזו?"
         
         # Create AI response
         ConversationMessage.objects.create(
@@ -9012,10 +9081,10 @@ def handle_exam_chat_interaction(request, session_id):
         })
         
     except ChatSession.DoesNotExist:
-        return Response({'error': 'Session not found'}, status=404)
+        return Response({'error': 'מושב לא נמצא'}, status=404)
     except Exception as e:
         print(f"Error in exam chat interaction: {e}")
-        return Response({'error': str(e)}, status=500)
+        return Response({'error': 'שגיאה בעיבוד התגובה'}, status=500)
 
 
 # ============= NEW STRUCTURED LEARNING SYSTEM =============

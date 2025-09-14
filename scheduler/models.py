@@ -870,6 +870,11 @@ class InteractiveExamQuestion(models.Model):
     difficulty = models.CharField(max_length=20, default='medium')
     order_index = models.IntegerField(default=1)
     
+    # Semantic grading fields
+    rubric = models.TextField(blank=True, null=True, help_text="Grading rubric with key points and weights (JSON)")
+    numeric_solution = models.TextField(blank=True, null=True, help_text="Numeric solution with tolerance (JSON)")
+    pass_mark = models.IntegerField(default=60, help_text="Minimum score to pass (0-100)")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
@@ -910,6 +915,9 @@ class StudentExamSession(models.Model):
     final_score = models.FloatField(null=True, blank=True)
     total_time_minutes = models.FloatField(null=True, blank=True)
     
+    # Additional data storage
+    notes = models.TextField(blank=True, null=True, help_text="JSON data for adaptive session and other metadata")
+    
     def __str__(self):
         return f"{self.student.username} - {self.exam.title} ({self.status})"
     
@@ -929,7 +937,13 @@ class StudentExamAnswer(models.Model):
     # Answer details
     final_answer = models.TextField(blank=True, null=True)
     is_correct = models.BooleanField(default=False)
+    partial_score = models.FloatField(default=0.0, help_text="Score from 0.0 to 1.0 for partial credit")
     attempts_used = models.IntegerField(default=0)
+    
+    # Gemini evaluation results
+    correctness = models.CharField(max_length=20, default='unknown', help_text="correct/partial/incorrect")
+    feedback = models.TextField(blank=True, null=True, help_text="Gemini feedback in Hebrew")
+    gemini_response = models.TextField(blank=True, null=True, help_text="Raw Gemini response")
     
     # Timing
     time_taken_seconds = models.IntegerField(null=True, blank=True)

@@ -37,7 +37,7 @@ from .views import (
 )
 
 # Import clean interactive exam views
-from .interactive_exam_views import start_exam as clean_start_exam, submit_answer as clean_submit_answer, get_exam_state, finish_exam
+from .interactive_exam_views import start_exam as clean_start_exam, submit_answer as clean_submit_answer, get_exam_state, finish_exam, get_student_results, get_teacher_analytics, get_teacher_dashboard, get_teacher_summary_report, get_student_personal_results, get_security_audit_log, grade_answer
 
 # Create a router and register our viewset with it
 router = DefaultRouter()
@@ -154,8 +154,23 @@ urlpatterns = [
     path('clean-exam/state/', get_exam_state, name='get_exam_state'),
     path('clean-exam/finish/', finish_exam, name='finish_exam'),
     
+    # 📊 STUDENT RESULTS & ANALYTICS - JSON Storage System
+    path('exam/results/', get_student_results, name='get_student_results'),
+    path('exam/analytics/', get_teacher_analytics, name='get_teacher_analytics'),
+    
+    # 🎓 DUAL MODE RESULTS ACCESS - Teacher & Student Modes
+    path('exam/teacher-dashboard/', get_teacher_dashboard, name='get_teacher_dashboard'),
+    path('exam/teacher-summary-report/', get_teacher_summary_report, name='get_teacher_summary_report'),
+    path('exam/student-results/<int:student_id>/', get_student_personal_results, name='get_student_personal_results'),
+    
+    # 🔒 SECURITY & AUDIT - Secure Data Handling
+    path('exam/security-audit/', get_security_audit_log, name='get_security_audit_log'),
+    
     # 🚀 Fast Question Generation for Teachers
     path('generate_questions_from_document/', generate_questions_from_document, name='generate_questions_from_document'),
+    
+    # 🧠 Semantic Grading System
+    path('grade/', grade_answer, name='grade_answer'),
     
     # Router endpoints (lessons)
     path('', include(router.urls)),
