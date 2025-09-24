@@ -1,0 +1,937 @@
+{
+  "metadata": {
+    "created_at": "2025-09-12T14:45:15.006013",
+    "version": "1.0",
+    "description": "Student exam results storage",
+    "last_updated": "2025-09-12T15:27:00.424677",
+    "total_students": 15
+  },
+  "students": [
+    {
+      "student_id": 16,
+      "student_username": "student1",
+      "student_email": "student1@test.com",
+      "exam_id": 24,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 11,
+      "completion_timestamp": "2025-09-12T11:54:15.582602+00:00",
+      "total_questions": 10,
+      "questions_answered": 8,
+      "correct_answers": 6,
+      "final_score": 75.0,
+      "percentage": 60.0,
+      "mastery_level": "טוב",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 2,
+          "correct_answers": 0,
+          "accuracy": 0.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת קשה (0.0%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "יש לך בסיס טוב - המשך להתאמן",
+        "התמקד בהבנה מעמיקה יותר של החומר",
+        "התמקד יותר בחומר ברמת קשה"
+      ]
+    },
+    {
+      "student_id": 17,
+      "student_username": "student2",
+      "student_email": "student2@test.com",
+      "exam_id": 24,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 12,
+      "completion_timestamp": "2025-09-12T11:54:15.589112+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 9,
+      "final_score": 90.0,
+      "percentage": 90.0,
+      "mastery_level": "מעולה",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": true
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 3,
+          "accuracy": 75.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "המשך לשמור על הרמה הגבוהה"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "המשך לשמור על הרמה הגבוהה",
+        "נסה אתגרים נוספים ברמת קושי גבוהה"
+      ]
+    },
+    {
+      "student_id": 16,
+      "student_username": "student1",
+      "student_email": "student1@test.com",
+      "exam_id": 25,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 13,
+      "completion_timestamp": "2025-09-12T11:59:51.288841+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 9,
+      "final_score": 90.0,
+      "percentage": 90.0,
+      "mastery_level": "מעולה",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": true
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 3,
+          "accuracy": 75.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "המשך לשמור על הרמה הגבוהה"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "המשך לשמור על הרמה הגבוהה",
+        "נסה אתגרים נוספים ברמת קושי גבוהה"
+      ]
+    },
+    {
+      "student_id": 17,
+      "student_username": "student2",
+      "student_email": "student2@test.com",
+      "exam_id": 25,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 14,
+      "completion_timestamp": "2025-09-12T11:59:51.312028+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 7,
+      "final_score": 70.0,
+      "percentage": 70.0,
+      "mastery_level": "טוב",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 1,
+          "accuracy": 25.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת קשה (25.0%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "יש לך בסיס טוב - המשך להתאמן",
+        "התמקד בהבנה מעמיקה יותר של החומר",
+        "התמקד יותר בחומר ברמת קשה"
+      ]
+    },
+    {
+      "student_id": 19,
+      "student_username": "student3",
+      "student_email": "student3@test.com",
+      "exam_id": 25,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 15,
+      "completion_timestamp": "2025-09-12T11:59:51.352030+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 4,
+      "final_score": 40.0,
+      "percentage": 40.0,
+      "mastery_level": "צריך שיפור",
+      "difficulty_reached": "medium",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "medium",
+        "advanced_to_medium": false,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 7,
+          "correct_answers": 1,
+          "accuracy": 14.3,
+          "hebrew_level": "בינוני"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת בינוני (14.3%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "בינוני",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "התחל עם חומר ברמת קושי נמוכה יותר",
+        "השתמש ברמזים כדי להבין טוב יותר",
+        "התמקד יותר בחומר ברמת בינוני"
+      ]
+    },
+    {
+      "student_id": 16,
+      "student_username": "student1",
+      "student_email": "student1@test.com",
+      "exam_id": 26,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 16,
+      "completion_timestamp": "2025-09-12T12:03:04.251850+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 9,
+      "final_score": 90.0,
+      "percentage": 90.0,
+      "mastery_level": "מעולה",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": true
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 3,
+          "accuracy": 75.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "המשך לשמור על הרמה הגבוהה"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "המשך לשמור על הרמה הגבוהה",
+        "נסה אתגרים נוספים ברמת קושי גבוהה"
+      ]
+    },
+    {
+      "student_id": 17,
+      "student_username": "student2",
+      "student_email": "student2@test.com",
+      "exam_id": 26,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 17,
+      "completion_timestamp": "2025-09-12T12:03:04.271232+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 7,
+      "final_score": 70.0,
+      "percentage": 70.0,
+      "mastery_level": "טוב",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 1,
+          "accuracy": 25.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת קשה (25.0%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "יש לך בסיס טוב - המשך להתאמן",
+        "התמקד בהבנה מעמיקה יותר של החומר",
+        "התמקד יותר בחומר ברמת קשה"
+      ]
+    },
+    {
+      "student_id": 19,
+      "student_username": "student3",
+      "student_email": "student3@test.com",
+      "exam_id": 26,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 18,
+      "completion_timestamp": "2025-09-12T12:03:04.312743+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 4,
+      "final_score": 40.0,
+      "percentage": 40.0,
+      "mastery_level": "צריך שיפור",
+      "difficulty_reached": "medium",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "medium",
+        "advanced_to_medium": false,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 7,
+          "correct_answers": 1,
+          "accuracy": 14.3,
+          "hebrew_level": "בינוני"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת בינוני (14.3%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "בינוני",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "התחל עם חומר ברמת קושי נמוכה יותר",
+        "השתמש ברמזים כדי להבין טוב יותר",
+        "התמקד יותר בחומר ברמת בינוני"
+      ]
+    },
+    {
+      "student_id": 16,
+      "student_username": "student1",
+      "student_email": "student1@test.com",
+      "exam_id": 27,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 19,
+      "completion_timestamp": "2025-09-12T12:11:40.014673+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 9,
+      "final_score": 90.0,
+      "percentage": 90.0,
+      "mastery_level": "מעולה",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": true
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 3,
+          "accuracy": 75.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "המשך לשמור על הרמה הגבוהה"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "המשך לשמור על הרמה הגבוהה",
+        "נסה אתגרים נוספים ברמת קושי גבוהה"
+      ]
+    },
+    {
+      "student_id": 17,
+      "student_username": "student2",
+      "student_email": "student2@test.com",
+      "exam_id": 27,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 20,
+      "completion_timestamp": "2025-09-12T12:11:40.054923+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 7,
+      "final_score": 70.0,
+      "percentage": 70.0,
+      "mastery_level": "טוב",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 1,
+          "accuracy": 25.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת קשה (25.0%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "יש לך בסיס טוב - המשך להתאמן",
+        "התמקד בהבנה מעמיקה יותר של החומר",
+        "התמקד יותר בחומר ברמת קשה"
+      ]
+    },
+    {
+      "student_id": 16,
+      "student_username": "student1",
+      "student_email": "student1@test.com",
+      "exam_id": 28,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 22,
+      "completion_timestamp": "2025-09-12T12:27:00.221960+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 9,
+      "final_score": 90.0,
+      "percentage": 90.0,
+      "mastery_level": "מעולה",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": true
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 3,
+          "accuracy": 75.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "המשך לשמור על הרמה הגבוהה"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "המשך לשמור על הרמה הגבוהה",
+        "נסה אתגרים נוספים ברמת קושי גבוהה"
+      ]
+    },
+    {
+      "student_id": 17,
+      "student_username": "student2",
+      "student_email": "student2@test.com",
+      "exam_id": 28,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 23,
+      "completion_timestamp": "2025-09-12T12:27:00.274071+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 8,
+      "final_score": 80.0,
+      "percentage": 80.0,
+      "mastery_level": "טוב מאוד",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 2,
+          "accuracy": 50.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת קשה (50.0%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "אתה בדרך הנכונה - המשך כך",
+        "נסה לחזק את האזורים החלשים יותר",
+        "התמקד יותר בחומר ברמת קשה"
+      ]
+    },
+    {
+      "student_id": 19,
+      "student_username": "student3",
+      "student_email": "student3@test.com",
+      "exam_id": 28,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 24,
+      "completion_timestamp": "2025-09-12T12:27:00.312700+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 7,
+      "final_score": 70.0,
+      "percentage": 70.0,
+      "mastery_level": "טוב",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 1,
+          "accuracy": 25.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת קשה (25.0%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "יש לך בסיס טוב - המשך להתאמן",
+        "התמקד בהבנה מעמיקה יותר של החומר",
+        "התמקד יותר בחומר ברמת קשה"
+      ]
+    },
+    {
+      "student_id": 20,
+      "student_username": "student4",
+      "student_email": "student4@test.com",
+      "exam_id": 28,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 25,
+      "completion_timestamp": "2025-09-12T12:27:00.356387+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 6,
+      "final_score": 60.0,
+      "percentage": 60.0,
+      "mastery_level": "טוב",
+      "difficulty_reached": "hard",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "hard",
+        "advanced_to_medium": true,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "בינוני"
+        },
+        "hard": {
+          "questions_attempted": 4,
+          "correct_answers": 0,
+          "accuracy": 0.0,
+          "hebrew_level": "קשה"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)",
+        "הצלחה ברמת בינוני (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת קשה (0.0%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "קשה",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "יש לך בסיס טוב - המשך להתאמן",
+        "התמקד בהבנה מעמיקה יותר של החומר",
+        "התמקד יותר בחומר ברמת קשה"
+      ]
+    },
+    {
+      "student_id": 21,
+      "student_username": "student5",
+      "student_email": "student5@test.com",
+      "exam_id": 28,
+      "exam_title": "Interactive Exam: algorithm",
+      "session_id": 26,
+      "completion_timestamp": "2025-09-12T12:27:00.411558+00:00",
+      "total_questions": 10,
+      "questions_answered": 10,
+      "correct_answers": 4,
+      "final_score": 40.0,
+      "percentage": 40.0,
+      "mastery_level": "צריך שיפור",
+      "difficulty_reached": "medium",
+      "difficulty_progression": {
+        "started_at": "easy",
+        "current_level": "medium",
+        "advanced_to_medium": false,
+        "advanced_to_hard": false
+      },
+      "difficulty_performance": {
+        "easy": {
+          "questions_attempted": 3,
+          "correct_answers": 3,
+          "accuracy": 100.0,
+          "hebrew_level": "קל"
+        },
+        "medium": {
+          "questions_attempted": 7,
+          "correct_answers": 1,
+          "accuracy": 14.3,
+          "hebrew_level": "בינוני"
+        }
+      },
+      "question_answers": [],
+      "strengths": [
+        "הצלחה ברמת קל (100.0%)"
+      ],
+      "weaknesses": [
+        "קושי ברמת בינוני (14.3%)"
+      ],
+      "learning_analytics": {
+        "average_time_per_question": 0.0,
+        "total_hints_used": 0,
+        "most_challenging_difficulty": "בינוני",
+        "learning_curve": [
+          0.0
+        ]
+      },
+      "recommendations": [
+        "התחל עם חומר ברמת קושי נמוכה יותר",
+        "השתמש ברמזים כדי להבין טוב יותר",
+        "התמקד יותר בחומר ברמת בינוני"
+      ]
+    }
+  ],
+  "security_metadata": {
+    "last_updated": "2025-09-12 15:27:00.474606",
+    "storage_location": "secure_directory",
+    "access_restrictions": "role_based",
+    "data_encryption": "none",
+    "file_permissions": "0o600"
+  }
+}

@@ -1,4 +1,12 @@
 from pathlib import Path
+<<<<<<< HEAD
+=======
+import os  # Import os module
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+>>>>>>> daniel
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -27,10 +35,18 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework.authtoken',
+<<<<<<< HEAD
+=======
+    'corsheaders',
+>>>>>>> daniel
     'scheduler',
 ]
 
 MIDDLEWARE = [
+<<<<<<< HEAD
+=======
+    'corsheaders.middleware.CorsMiddleware',
+>>>>>>> daniel
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -64,6 +80,10 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+<<<<<<< HEAD
+=======
+# SQLite (default for development)
+>>>>>>> daniel
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -71,6 +91,21 @@ DATABASES = {
     }
 }
 
+<<<<<<< HEAD
+=======
+# Uncomment below for PostgreSQL (production/training)
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'educonnect_db',
+#         'USER': 'your_username',
+#         'PASSWORD': 'your_password',
+#         'HOST': 'localhost',
+#         'PORT': '5432',
+#     }
+# }
+
+>>>>>>> daniel
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
@@ -108,6 +143,18 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+<<<<<<< HEAD
+=======
+# Media files (user uploads)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# File upload settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 200 * 1024 * 1024  # 200MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 200 * 1024 * 1024  # 200MB
+FILE_UPLOAD_TEMP_DIR = os.path.join(BASE_DIR, 'temp_uploads')
+
+>>>>>>> daniel
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
@@ -118,9 +165,55 @@ AUTH_USER_MODEL = 'scheduler.User'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication', 
+<<<<<<< HEAD
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+=======
+        'rest_framework.authentication.TokenAuthentication',
+>>>>>>> daniel
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ]
+<<<<<<< HEAD
 }
+=======
+}
+
+# CORS settings for development
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+# CSRF settings for development
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# PaddleOCR Configuration
+try:
+    from paddleocr import PaddleOCR, __version__ as paddleocr_version
+    print(f"✅ PaddleOCR available - Version: {paddleocr_version}")
+except ImportError:
+    print("❌ PaddleOCR not installed. Install with: pip install paddleocr")
+
+# OCR Processing Settings
+OCR_SETTINGS = {
+    'MAX_IMAGE_SIZE_MB': 10,  # Maximum image size for OCR processing
+    'OCR_TIMEOUT': 30,        # OCR processing timeout in seconds
+    'OCR_LANGUAGES': 'eng',   # Default OCR language(s)
+    'OCR_CONFIDENCE_THRESHOLD': 30,  # Minimum confidence for text regions
+}
+
+# Google Gemini AI Configuration
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'your_api_key_here')
+GEMINI_MODEL = "gemini-2.5-flash"  # החדש והמשופר ביותר - עם thinking capabilities
+
+# AI Provider Settings
+AI_PROVIDER = 'gemini'  # 'ollama' או 'gemini'
+
+print("🔧 Django settings loaded successfully")
+>>>>>>> daniel

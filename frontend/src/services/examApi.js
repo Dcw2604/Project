@@ -1,0 +1,212 @@
+// API service for exam session management
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+
+class ExamApiService {
+  // Helper method to get auth headers
+  getAuthHeaders() {
+    const token = localStorage.getItem('authToken');
+    return {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Token ${token}` })
+    };
+  }
+
+  // Handle API response
+  async handleResponse(response) {
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'API request failed');
+    }
+    return response.json();
+  }
+
+  // Fetch all topics with question counts
+  async getTopics() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/topics/`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error fetching topics:', error);
+      throw error;
+    }
+  }
+
+  // Fetch chat-generated questions with filtering
+  async getQuestions(filters = {}) {
+    try {
+      const queryParams = new URLSearchParams({
+        is_generated: 'true', // Only chat-generated questions
+        ...filters
+      });
+      
+      const response = await fetch(`${API_BASE_URL}/questions/?${queryParams}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error fetching questions:', error);
+      throw error;
+    }
+  }
+
+  // Create a new exam session
+  async createExamSession(examData) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/exam-sessions/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(examData),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error creating exam session:', error);
+      throw error;
+    }
+  }
+
+  // Get exam session details
+  async getExamSession(id) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/exam-sessions/${id}/`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error fetching exam session:', error);
+      throw error;
+    }
+  }
+
+  // List all exam sessions for the current teacher
+  async getExamSessions() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/exam-sessions/`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error fetching exam sessions:', error);
+      throw error;
+    }
+  }
+
+  // Update exam session
+  async updateExamSession(id, examData) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/exam-sessions/${id}/`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(examData),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error updating exam session:', error);
+      throw error;
+    }
+  }
+
+  // Delete exam session
+  async deleteExamSession(id) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/exam-sessions/${id}/`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders(),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete exam session');
+      }
+      return true;
+    } catch (error) {
+      console.error('Error deleting exam session:', error);
+      throw error;
+    }
+  }
+
+  // ===== INTERACTIVE LEARNING WITH OLLAMA =====
+  
+  // Start an interactive learning session (uses Ollama)
+  async startInteractiveLearning(topic = 'Linear Equations') {
+    try {
+      const response = await fetch(`${API_BASE_URL}/interactive/start/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ topic }),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error starting interactive learning:', error);
+      throw error;
+    }
+  }
+
+  // Submit answer to interactive learning session (uses Ollama for checking)
+  async submitInteractiveLearningAnswer(sessionId, message) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/interactive/chat/${sessionId}/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ message }),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error submitting interactive learning answer:', error);
+      throw error;
+    }
+  }
+
+  // Get interactive learning progress
+  async getInteractiveLearningProgress(sessionId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/interactive/progress/${sessionId}/`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error fetching interactive learning progress:', error);
+      throw error;
+    }
+  }
+
+  // End interactive learning session
+  async endInteractiveLearning(sessionId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/interactive/end/${sessionId}/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error ending interactive learning:', error);
+      throw error;
+    }
+  }
+
+  // ===== STRUCTURED LEARNING SYSTEM =====
+  
+  // Submit answer to structured learning (alternative approach)
+  async submitStructuredLearningAnswer(sessionId, answer) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/learning/answer/`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ session_id: sessionId, answer }),
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error('Error submitting structured learning answer:', error);
+      throw error;
+    }
+  }
+}
+
+export const examApi = new ExamApiService();
+export default examApi;

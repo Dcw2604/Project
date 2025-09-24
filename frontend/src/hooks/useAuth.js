@@ -29,7 +29,11 @@ export const useAuth = () => {
 
   const loginWithCredentials = async (username, password) => {
     try {
+<<<<<<< HEAD
       const response = await fetch('http://127.0.0.1:8000/api/token/', {
+=======
+      const response = await fetch('http://127.0.0.1:8000/api/login/', {
+>>>>>>> daniel
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -39,12 +43,22 @@ export const useAuth = () => {
 
       if (response.ok) {
         const data = await response.json();
+<<<<<<< HEAD
         const token = data.access;
         const userData = { username }; // You can expand this with more user data if needed
         login(token, userData);
         return { success: true };
       } else {
         return { success: false, error: 'Invalid credentials' };
+=======
+        const token = data.token;  // Use 'token' instead of 'access'
+        const userData = data.user;  // Get user data from response
+        login(token, userData);
+        return { success: true };
+      } else {
+        const errorData = await response.json();
+        return { success: false, error: errorData.error || 'Invalid credentials' };
+>>>>>>> daniel
       }
     } catch (error) {
       return { success: false, error: 'Network error' };
@@ -59,12 +73,29 @@ export const useAuth = () => {
     setIsAuthenticated(false);
   };
 
+<<<<<<< HEAD
+=======
+  const clearCache = () => {
+    console.log('Clearing auth cache...');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userData');
+    setAuthToken(null);
+    setUser(null);
+    setIsAuthenticated(false);
+  };
+
+>>>>>>> daniel
   return {
     authToken,
     user,
     isAuthenticated,
     login,
     loginWithCredentials,
+<<<<<<< HEAD
     logout
+=======
+    logout,
+    clearCache
+>>>>>>> daniel
   };
 };
