@@ -89,14 +89,18 @@ class ExamCreationView(APIView):
                         exam=exam,
                         document=document,
                         question_text=q.get("question_text"),
-                        option_a=q.get("option_a"),
-                        option_b=q.get("option_b"),
-                        option_c=q.get("option_c"),
-                        option_d=q.get("option_d"),
-                        correct_answer=q.get("correct_answer"),
+                        question_type=q.get("question_type", "open_ended"),
+                        expected_keywords=json.dumps(q.get("expected_keywords", [])),
+                        sample_answer=q.get("sample_answer", ""),
+                        # Keep multiple choice fields for backward compatibility
+                        option_a=q.get("option_a", ""),
+                        option_b=q.get("option_b", ""),
+                        option_c=q.get("option_c", ""),
+                        option_d=q.get("option_d", ""),
+                        correct_answer=q.get("correct_answer", ""),
                         explanation=q.get("explanation", ""),
                         difficulty_level=lvl,
-                    )
+                 )
 
             return Response({"success": True, "exam_id": exam.id, "questions": result["total_questions"]})
         except Exception as e:

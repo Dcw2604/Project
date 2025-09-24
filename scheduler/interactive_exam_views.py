@@ -28,12 +28,15 @@ class StartExamView(APIView):
             questions = QuestionBank.objects.filter(exam=exam).order_by('difficulty_level')
             questions_list = list(questions)
 
-            # Pass questions to AdaptiveExamSession
-            adaptive = AdaptiveExamSession(questions_list)
-            request.session["adaptive_exam"] = adaptive.to_dict()
+            # Store only essential data in session (not the full object)
+            request.session["adaptive_exam"] = {
+                "exam_session_id": session.id,
+                "current_index": 0,
+                "answers": {},
+                "exam_id": exam_id
+            }
             request.session.modified = True
 
-            # Add this return statement back
             return Response({
                 "success": True,
                 "session_id": session.id,
@@ -78,16 +81,23 @@ class SubmitAnswerView(APIView):
                 is_correct=is_correct
             )
 
-            adaptive = AdaptiveExamSession.from_dict(request.session.get("adaptive_exam", {}))
-            adaptive.submit_answer(question_id, answer_text, is_correct)
-            request.session["adaptive_exam"] = adaptive.to_dict()
+            # Update session data directly (simpler approach)
+            session_data = request.session.get("adaptive_exam", {})
+            session_data["answers"] = session_data.get("answers", {})
+            session_data["answers"][question_id] = {"answer": answer_text, "is_correct": is_correct}
+            session_data["current_index"] = session_data.get("current_index", 0) + 1
+            request.session["adaptive_exam"] = session_data
             request.session.modified = True
 
-            # Get next question
-            next_question = adaptive.get_next_question()
-            next_question_data = None
+            # Get next question from database
+            questions = QuestionBank.objects.filter(exam=exam_session.exam).order_by('difficulty_level')
+            current_index = session_data["current_index"]
             
-            if next_question:
+            next_question_data = None
+            has_more_questions = current_index < len(questions)
+            
+            if has_more_questions:
+                next_question = questions[current_index]
                 next_question_data = {
                     "id": next_question.id,
                     "question_text": next_question.question_text,
@@ -96,8 +106,8 @@ class SubmitAnswerView(APIView):
                     "option_c": next_question.option_c,
                     "option_d": next_question.option_d,
                     "difficulty_level": next_question.difficulty_level,
-                    "question_number": adaptive.current_index + 1,
-                    "total_questions": len(adaptive.questions)
+                    "question_number": current_index + 1,
+                    "total_questions": len(questions)
                 }
 
             return Response({
@@ -105,13 +115,12 @@ class SubmitAnswerView(APIView):
                 "is_correct": is_correct,
                 "score": score,
                 "next_question": next_question_data,
-                "has_more_questions": not adaptive.is_exam_complete(),
+                "has_more_questions": has_more_questions,
                 "message": "Answer submitted successfully."
             })
         except Exception as e:
             logger.error("Submit answer failed: %s", e)
             return Response({"success": False, "error": str(e)}, status=500)
-
 
 @extend_schema(
     description="Finish an exam session and return results summary.",
@@ -128,6 +137,11 @@ class FinishExamView(APIView):
             correct = answers.filter(is_correct=True).count()
             total = answers.count()
 
+            # Clear any problematic session data
+            if "adaptive_exam" in request.session:
+                del request.session["adaptive_exam"]
+                request.session.modified = True
+
             return Response({
                 "success": True,
                 "exam_session_id": session_id,
@@ -138,7 +152,7 @@ class FinishExamView(APIView):
         except Exception as e:
             logger.error("Finish exam failed: %s", e)
             return Response({"success": False, "error": str(e)}, status=500)
-
+            
 @extend_schema(
     description="Get questions for an exam.",
     responses={200: dict}
@@ -179,13 +193,18 @@ class GetNextQuestionView(APIView):
             session_id = request.data.get("exam_session_id")
             exam_session = ExamSession.objects.get(id=session_id)
             
-            # Get the adaptive session
-            adaptive = AdaptiveExamSession.from_dict(request.session.get("adaptive_exam", {}))
+            # Get session data (simplified approach)
+            session_data = request.session.get("adaptive_exam", {})
+            current_index = session_data.get("current_index", 0)
             
-            # Get next question
-            next_question = adaptive.get_next_question()
+            # Get questions from database
+            questions = QuestionBank.objects.filter(exam=exam_session.exam).order_by('difficulty_level')
+            questions_list = list(questions)
             
-            if next_question:
+            has_more_questions = current_index < len(questions_list)
+            
+            if has_more_questions:
+                next_question = questions_list[current_index]
                 question_data = {
                     "id": next_question.id,
                     "question_text": next_question.question_text,
@@ -194,8 +213,8 @@ class GetNextQuestionView(APIView):
                     "option_c": next_question.option_c,
                     "option_d": next_question.option_d,
                     "difficulty_level": next_question.difficulty_level,
-                    "question_number": adaptive.current_index + 1,
-                    "total_questions": len(adaptive.questions)
+                    "question_number": current_index + 1,
+                    "total_questions": len(questions_list)
                 }
                 
                 return Response({

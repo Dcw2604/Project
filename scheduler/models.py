@@ -38,11 +38,22 @@ class QuestionBank(models.Model):
     exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="questions")
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="questions")
     question_text = models.TextField()
-    option_a = models.CharField(max_length=255)
-    option_b = models.CharField(max_length=255)
-    option_c = models.CharField(max_length=255)
-    option_d = models.CharField(max_length=255)
-    correct_answer = models.CharField(max_length=1)
+    
+    # Multiple choice fields (keep for backward compatibility)
+    option_a = models.CharField(max_length=255, blank=True, null=True)
+    option_b = models.CharField(max_length=255, blank=True, null=True)
+    option_c = models.CharField(max_length=255, blank=True, null=True)
+    option_d = models.CharField(max_length=255, blank=True, null=True)
+    correct_answer = models.CharField(max_length=1, blank=True, null=True)
+    
+    # Open-ended question fields
+    question_type = models.CharField(max_length=20, default="multiple_choice", choices=[
+        ("multiple_choice", "Multiple Choice"),
+        ("open_ended", "Open Ended")
+    ])
+    expected_keywords = models.TextField(blank=True, null=True)  # JSON string of keywords
+    sample_answer = models.TextField(blank=True, null=True)
+    
     explanation = models.TextField(blank=True, null=True)
     difficulty_level = models.IntegerField(default=3)
 

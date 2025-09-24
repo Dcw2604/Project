@@ -8,7 +8,11 @@ Adaptive Testing Engine — Cleaned
 """
 
 import random
+import json
+import logging
 from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 class AdaptiveExamSession:
@@ -69,53 +73,98 @@ class AdaptiveExamSession:
         ]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "answers": self.answers,
-            "current_index": self.current_index,
-            "questions": [
-                {
-                    "id": q.id,
-                    "text": q.question_text,
-                    "option_a": q.option_a,
-                    "option_b": q.option_b,
-                    "option_c": q.option_c,
-                    "option_d": q.option_d,
-                    "correct_answer": q.correct_answer,
-                    "difficulty_level": q.difficulty_level  # Remove the trailing comma here
+        try:
+            questions_data = []
+            for q in self.questions:
+                # Handle expected_keywords safely
+                expected_keywords = q.expected_keywords
+                if isinstance(expected_keywords, str) and expected_keywords:
+                    try:
+                        expected_keywords = json.loads(expected_keywords)
+                    except:
+                        expected_keywords = [expected_keywords]
+                elif not expected_keywords:
+                    expected_keywords = []
+                
+                question_dict = {
+                    "id": int(q.id),
+                    "text": str(q.question_text or ""),
+                    "option_a": str(q.option_a or ""),
+                    "option_b": str(q.option_b or ""),
+                    "option_c": str(q.option_c or ""),
+                    "option_d": str(q.option_d or ""),
+                    "correct_answer": str(q.correct_answer or ""),
+                    "difficulty_level": int(q.difficulty_level or 3),
+                    "question_type": str(q.question_type or "multiple_choice"),
+                    "expected_keywords": expected_keywords,
+                    "sample_answer": str(q.sample_answer or "")
                 }
-                for q in self.questions
-            ],
-        }
+                questions_data.append(question_dict)
+            
+            result = {
+                "answers": self.answers,
+                "current_index": int(self.current_index),
+                "questions": questions_data,
+            }
+            
+            # Test JSON serialization
+            json.dumps(result)
+            logger.info(f"Successfully serialized AdaptiveExamSession with {len(questions_data)} questions")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to serialize AdaptiveExamSession: {e}")
+            return {
+                "answers": {},
+                "current_index": 0,
+                "questions": [],
+            }
 
     @classmethod
+
     def from_dict(cls, data: Dict[str, Any]):
-        from .models import QuestionBank
+        try:
+            # If data is empty or None, return empty session
+            if not data or not isinstance(data, dict):
+                logger.warning("Empty or invalid session data, returning empty session")
+                return cls(questions=[])
+                
+            from .models import QuestionBank
 
-        questions = []
-        for qd in data.get("questions", []):
-            q = QuestionBank(
-                id=qd["id"],
-                question_text=qd["text"],
-                option_a=qd["option_a"],
-                option_b=qd["option_b"],
-                option_c=qd["option_c"],
-                option_d=qd["option_d"],
-                correct_answer=qd["correct_answer"],
-                difficulty_level=qd["difficulty_level"],
-            )
-            questions.append(q)
+            questions = []
+            questions_data = data.get("questions", [])
+            
+            if not questions_data:
+                logger.warning("No questions data in session, returning empty session")
+                return cls(questions=[])
+                
+            for qd in questions_data:
+                try:
+                    q = QuestionBank(
+                        id=qd.get("id", 0),
+                        question_text=qd.get("text", ""),
+                        option_a=qd.get("option_a", ""),
+                        option_b=qd.get("option_b", ""),
+                        option_c=qd.get("option_c", ""),
+                        option_d=qd.get("option_d", ""),
+                        correct_answer=qd.get("correct_answer", ""),
+                        difficulty_level=qd.get("difficulty_level", 3),
+                        question_type=qd.get("question_type", "multiple_choice"),
+                        expected_keywords=qd.get("expected_keywords", ""),
+                        sample_answer=qd.get("sample_answer", "")
+                    )
+                    questions.append(q)
+                except Exception as q_error:
+                    logger.error(f"Failed to create question from data {qd}: {q_error}")
+                    continue
 
-        session = cls(questions=questions)
-        session.answers = data.get("answers", {})
-        session.current_index = data.get("current_index", 0)
-        return session
-    
-    def get_next_question(self):
-        """Get the next question to display"""
-        if self.current_index < len(self.questions):
-            return self.questions[self.current_index]
-        return None
-
-    def is_exam_complete(self):
-        """Check if all questions have been answered"""
-        return self.current_index >= len(self.questions)
+            session = cls(questions=questions)
+            session.answers = data.get("answers", {})
+            session.current_index = data.get("current_index", 0)
+            logger.info(f"Successfully deserialized AdaptiveExamSession with {len(questions)} questions")
+            return session
+            
+        except Exception as e:
+            logger.error(f"Failed to deserialize AdaptiveExamSession: {e}")
+            logger.error(f"Session data was: {data}")
+            return cls(questions=[])

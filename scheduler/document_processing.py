@@ -53,19 +53,19 @@ class GeminiFlashProvider:
             raise RuntimeError("google.generativeai not available.")
 
         prompt = (
-            "You are an expert teacher. Generate 5 multiple-choice questions "
+            "You are an expert teacher. Generate 5 open-ended questions "
             f"at {difficulty} level (Level {level}) from the following content.\n\n"
-            "IMPORTANT: Return ONLY valid JSON in this exact format:\n"
+            "IMPORTANT: Create questions that require students to write detailed answers, "
+            "explain concepts, analyze problems, or demonstrate understanding.\n\n"
+            "Return ONLY valid JSON in this exact format:\n"
             "{\n"
             '  "questions": [\n'
             '    {\n'
-            '      "question_text": "Your question here?",\n'
-            '      "option_a": "Option A",\n'
-            '      "option_b": "Option B",\n'
-            '      "option_c": "Option C",\n'
-            '      "option_d": "Option D",\n'
-            '      "correct_answer": "A",\n'
-            '      "explanation": "Explanation here"\n'
+            '      "question_text": "Your open-ended question here?",\n'
+            '      "question_type": "open_ended",\n'
+            '      "difficulty_level": 3,\n'
+            '      "expected_keywords": ["keyword1", "keyword2", "keyword3"],\n'
+            '      "sample_answer": "A sample answer that demonstrates the expected response"\n'
             '    }\n'
             '  ]\n'
             "}\n\n"
@@ -117,30 +117,7 @@ class GenericDocumentProcessor:
 
         return {"questions": []}
 
-    # ---------------- Document pipeline ----------------
-    # def process_document(self, text: str, document_id: str) -> Dict[str, Any]:
-    #     try:
-    #         cleaned = self.clean_text(text)
-    #         lvl3 = self.extract_questions_by_level(cleaned, "3", "basic")
-    #         lvl4 = self.extract_questions_by_level(cleaned, "4", "intermediate")
-    #         lvl5 = self.extract_questions_by_level(cleaned, "5", "advanced")
-    #         chunks = self.prepare_rag_chunks(cleaned)
-    #         return {
-    #             "level_3_questions": lvl3,
-    #             "level_4_questions": lvl4,
-    #             "level_5_questions": lvl5,
-    #             "knowledge_chunks": chunks,
-    #             "total_questions": len(lvl3) + len(lvl4) + len(lvl5),
-    #         }
-    #     except Exception as e:
-    #         logger.error("process_document failed: %s", e)
-    #         return {
-    #             "level_3_questions": [],
-    #             "level_4_questions": [],
-    #             "level_5_questions": [],
-    #             "knowledge_chunks": [],
-    #             "total_questions": 0
-    #         }
+
     def process_document(self, text: str, document_id: str) -> Dict[str, Any]:
         try:
             logger.info(f"Processing document {document_id} with text length: {len(text)}")
@@ -173,14 +150,6 @@ class GenericDocumentProcessor:
                 "total_questions": 0,
             }
 
-    # def extract_questions_by_level(self, text: str, level: str, difficulty: str) -> List[Dict[str, Any]]:
-    #     try:
-    #         raw = self.provider.generate_questions(level=level, difficulty=difficulty, content=text)
-    #         parsed = self.extract_json_from_response(raw)
-    #         return [q for q in parsed.get("questions", []) if self.validate_question_data(q)]
-    #     except Exception as e:
-    #         logger.warning("Level %s generation failed (%s).", level, e)
-    #         return []
     def extract_questions_by_level(self, text: str, level: str, difficulty: str) -> List[Dict[str, Any]]:
         try:
             logger.info(f"Generating questions for level {level} with content length: {len(text)}")
@@ -217,7 +186,15 @@ class GenericDocumentProcessor:
         return text.strip()
 
     def validate_question_data(self, q: Dict[str, Any]) -> bool:
-        required = ["question_text", "option_a", "option_b", "option_c", "option_d", "correct_answer"]
-        return all((k in q and isinstance(q[k], str) and q[k].strip()) for k in required)
+        # For open-ended questions, we need different validation
+        required_open_ended = ["question_text", "question_type", "expected_keywords", "sample_answer"]
+        required_multiple_choice = ["question_text", "option_a", "option_b", "option_c", "option_d", "correct_answer"]
+        
+        # Check if it's an open-ended question
+        if q.get("question_type") == "open_ended":
+            return all((k in q and isinstance(q[k], (str, list)) and (q[k] if isinstance(q[k], list) else q[k].strip())) for k in required_open_ended)
+        else:
+            # Fallback to multiple choice validation
+            return all((k in q and isinstance(q[k], str) and q[k].strip()) for k in required_multiple_choice)
 
 DocumentProcessor = GenericDocumentProcessor
