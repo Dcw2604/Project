@@ -7,6 +7,7 @@ from .models import Exam, ExamSession, QuestionBank, StudentAnswer, User
 from .adaptive_testing_engine import AdaptiveExamSession
 from .answer_evaluator import AnswerEvaluator
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +57,7 @@ class StartExamView(APIView):
     request=dict,
     responses={200: dict}
 )
+
 class SubmitAnswerView(APIView):
     def post(self, request, exam_id):
         try:
@@ -63,33 +65,57 @@ class SubmitAnswerView(APIView):
             question_id = request.data.get("question_id")
             answer_text = request.data.get("answer")
 
+            logger.info(f"Submitting answer: session_id={session_id}, question_id={question_id}, answer_length={len(answer_text) if answer_text else 0}")
+
             exam_session = ExamSession.objects.get(id=session_id)
             question = QuestionBank.objects.get(id=question_id)
+            
+            # Get total number of questions in this exam
+            total_questions = QuestionBank.objects.filter(exam=exam_session.exam).count()
+            
+            # Calculate points per question (100 divided by total questions)
+            points_per_question = 100.0 / total_questions if total_questions > 0 else 10.0
 
+            logger.info(f"Total questions: {total_questions}, Points per question: {points_per_question}")
+
+            # Use improved evaluator with calculated points
             evaluator = AnswerEvaluator()
             is_correct, score = evaluator.evaluate_answer(
                 question_text=question.question_text,
                 correct_answer=question.correct_answer,
-                student_answer=answer_text
+                student_answer=answer_text,
+                question_type=question.question_type,
+                sample_answer=question.sample_answer,
+                max_points=points_per_question
             )
 
-            StudentAnswer.objects.create(
+            logger.info(f"Evaluation result: is_correct={is_correct}, score={score}")
+
+            # Store the answer with score
+            student_answer = StudentAnswer.objects.create(
                 exam=exam_session.exam,
                 question=question,
                 student=exam_session.student,
                 answer=answer_text,
-                is_correct=is_correct
+                is_correct=is_correct,
+                score=score
             )
 
-            # Update session data directly (simpler approach)
+            logger.info(f"StudentAnswer created with ID: {student_answer.id}")
+
+            # Update session data
             session_data = request.session.get("adaptive_exam", {})
             session_data["answers"] = session_data.get("answers", {})
-            session_data["answers"][question_id] = {"answer": answer_text, "is_correct": is_correct}
+            session_data["answers"][question_id] = {
+                "answer": answer_text, 
+                "is_correct": is_correct,
+                "score": score
+            }
             session_data["current_index"] = session_data.get("current_index", 0) + 1
             request.session["adaptive_exam"] = session_data
             request.session.modified = True
 
-            # Get next question from database
+            # Get next question
             questions = QuestionBank.objects.filter(exam=exam_session.exam).order_by('difficulty_level')
             current_index = session_data["current_index"]
             
@@ -107,21 +133,24 @@ class SubmitAnswerView(APIView):
                     "option_d": next_question.option_d,
                     "difficulty_level": next_question.difficulty_level,
                     "question_number": current_index + 1,
-                    "total_questions": len(questions)
+                    "total_questions": len(questions),
+                    "question_type": next_question.question_type,
+                    "points_per_question": round(points_per_question, 2)
                 }
 
             return Response({
                 "success": True,
                 "is_correct": is_correct,
-                "score": score,
+                "score": round(score, 2),
+                "max_score": round(points_per_question, 2),
                 "next_question": next_question_data,
                 "has_more_questions": has_more_questions,
-                "message": "Answer submitted successfully."
+                "message": f"Answer submitted successfully. Score: {round(score, 2)}/{round(points_per_question, 2)}"
             })
         except Exception as e:
             logger.error("Submit answer failed: %s", e)
+            logger.error("Request data: %s", request.data)
             return Response({"success": False, "error": str(e)}, status=500)
-
 @extend_schema(
     description="Finish an exam session and return results summary.",
     request=dict,
@@ -152,7 +181,7 @@ class FinishExamView(APIView):
         except Exception as e:
             logger.error("Finish exam failed: %s", e)
             return Response({"success": False, "error": str(e)}, status=500)
-            
+
 @extend_schema(
     description="Get questions for an exam.",
     responses={200: dict}

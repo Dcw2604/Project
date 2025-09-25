@@ -70,8 +70,9 @@ class StudentAnswer(models.Model):
     exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="answers")
     question = models.ForeignKey(QuestionBank, on_delete=models.CASCADE, related_name="answers")
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name="answers")
-    answer = models.CharField(max_length=10)
+    answer = models.TextField()  # Change to TextField for open-ended answers
     is_correct = models.BooleanField(default=False)
+    score = models.FloatField(default=0.0)  # Add score field
     submitted_at = models.DateTimeField(auto_now_add=True)
 
 
