@@ -163,25 +163,35 @@ class FinishExamView(APIView):
             exam_session = ExamSession.objects.get(id=session_id)
 
             answers = StudentAnswer.objects.filter(exam=exam_session.exam, student=exam_session.student)
-            correct = answers.filter(is_correct=True).count()
-            total = answers.count()
-
-            # Clear any problematic session data
-            if "adaptive_exam" in request.session:
-                del request.session["adaptive_exam"]
-                request.session.modified = True
+            
+            # Calculate actual scores
+            total_score_earned = sum(answer.score for answer in answers)
+            total_questions_answered = answers.count()
+            total_questions_in_exam = QuestionBank.objects.filter(exam=exam_session.exam).count()
+            
+            # Calculate what the maximum possible score would be if all questions were answered perfectly
+            points_per_question = 100.0 / total_questions_in_exam if total_questions_in_exam > 0 else 10.0
+            max_possible_if_all_answered = 100.0  # Always 100 points total
+            max_possible_with_answered_questions = total_questions_answered * points_per_question
+            
+            correct_answers = answers.filter(is_correct=True).count()
 
             return Response({
                 "success": True,
                 "exam_session_id": session_id,
-                "correct": correct,
-                "total": total,
-                "score_percent": (correct / total * 100) if total else 0
+                "questions_answered": total_questions_answered,
+                "total_questions_in_exam": total_questions_in_exam,
+                "correct_answers": correct_answers,
+                "total_score_earned": round(total_score_earned, 2),
+                "max_possible_score": max_possible_if_all_answered,
+                "percentage_of_exam_completed": round((total_questions_answered / total_questions_in_exam) * 100, 2),
+                "percentage_of_answered_correct": round((correct_answers / total_questions_answered) * 100, 2) if total_questions_answered > 0 else 0,
+                "points_per_question": round(points_per_question, 2),
+                "individual_scores": [{"question_id": answer.question.id, "score": answer.score, "max_score": points_per_question} for answer in answers]
             })
         except Exception as e:
             logger.error("Finish exam failed: %s", e)
             return Response({"success": False, "error": str(e)}, status=500)
-
 @extend_schema(
     description="Get questions for an exam.",
     responses={200: dict}
