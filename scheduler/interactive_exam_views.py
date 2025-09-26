@@ -1,4 +1,5 @@
 import logging
+import random 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
@@ -25,23 +26,55 @@ class StartExamView(APIView):
             exam = Exam.objects.get(id=exam_id)
             session = ExamSession.objects.create(exam=exam, student=student)
 
-            # Get questions for this exam
-            questions = QuestionBank.objects.filter(exam=exam).order_by('difficulty_level')
-            questions_list = list(questions)
-
+            # Get questions by difficulty level
+            level_3_questions = list(QuestionBank.objects.filter(exam=exam, difficulty_level=3))
+            level_4_questions = list(QuestionBank.objects.filter(exam=exam, difficulty_level=4))
+            level_5_questions = list(QuestionBank.objects.filter(exam=exam, difficulty_level=5))
+            
+            # Select random questions with the specified distribution
+            selected_questions = []
+            
+            # 30% from Level 3 (3 questions)
+            if len(level_3_questions) >= 3:
+                selected_questions.extend(random.sample(level_3_questions, 3))
+            else:
+                selected_questions.extend(level_3_questions)  # Take all if less than 3
+            
+            # 30% from Level 4 (3 questions)
+            if len(level_4_questions) >= 3:
+                selected_questions.extend(random.sample(level_4_questions, 3))
+            else:
+                selected_questions.extend(level_4_questions)  # Take all if less than 3
+            
+            # 40% from Level 5 (4 questions)
+            if len(level_5_questions) >= 4:
+                selected_questions.extend(random.sample(level_5_questions, 4))
+            else:
+                selected_questions.extend(level_5_questions)  # Take all if less than 4
+            
+            # Shuffle the selected questions for random order
+            random.shuffle(selected_questions)
+            
             # Store only essential data in session (not the full object)
             request.session["adaptive_exam"] = {
                 "exam_session_id": session.id,
                 "current_index": 0,
                 "answers": {},
-                "exam_id": exam_id
+                "exam_id": exam_id,
+                "selected_question_ids": [q.id for q in selected_questions],  # Store selected question IDs
+                "total_selected_questions": len(selected_questions)
             }
             request.session.modified = True
 
             return Response({
                 "success": True,
                 "session_id": session.id,
-                "total_questions": len(questions_list)
+                "total_questions": len(selected_questions),
+                "question_distribution": {
+                    "level_3_selected": len([q for q in selected_questions if q.difficulty_level == 3]),
+                    "level_4_selected": len([q for q in selected_questions if q.difficulty_level == 4]),
+                    "level_5_selected": len([q for q in selected_questions if q.difficulty_level == 5])
+                }
             })
         except Exception as e:
             logger.error("Start exam failed: %s", e)
@@ -61,22 +94,39 @@ class StartExamView(APIView):
 class SubmitAnswerView(APIView):
     def post(self, request, exam_id):
         try:
-            session_id = request.data.get("exam_session_id")
-            question_id = request.data.get("question_id")
-            answer_text = request.data.get("answer")
+            # Get raw body first (before Django processes it)
+            raw_body = request.body.decode('utf-8', errors='ignore')
+            
+            # Try to parse JSON normally first
+            import json
+            try:
+                request_data = json.loads(raw_body)
+                session_id = request_data.get("exam_session_id")
+                question_id = request_data.get("question_id")
+                answer_text = request_data.get("answer")
+            except json.JSONDecodeError:
+                # If JSON parsing fails, clean the raw body and try again
+                cleaned_body = raw_body.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+                request_data = json.loads(cleaned_body)
+                session_id = request_data.get("exam_session_id")
+                question_id = request_data.get("question_id")
+                answer_text = request_data.get("answer")
 
-            logger.info(f"Submitting answer: session_id={session_id}, question_id={question_id}, answer_length={len(answer_text) if answer_text else 0}")
+            # Clean the answer text
+            if answer_text:
+                answer_text = str(answer_text).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+                answer_text = ' '.join(answer_text.split())
 
             exam_session = ExamSession.objects.get(id=session_id)
             question = QuestionBank.objects.get(id=question_id)
             
-            # Get total number of questions in this exam
-            total_questions = QuestionBank.objects.filter(exam=exam_session.exam).count()
+            # Get selected questions from session
+            session_data = request.session.get("adaptive_exam", {})
+            selected_question_ids = session_data.get("selected_question_ids", [])
+            total_selected_questions = session_data.get("total_selected_questions", 10)
             
-            # Calculate points per question (100 divided by total questions)
-            points_per_question = 100.0 / total_questions if total_questions > 0 else 10.0
-
-            logger.info(f"Total questions: {total_questions}, Points per question: {points_per_question}")
+            # Calculate points per question (100 divided by selected questions)
+            points_per_question = 100.0 / total_selected_questions if total_selected_questions > 0 else 10.0
 
             # Use improved evaluator with calculated points
             evaluator = AnswerEvaluator()
@@ -89,10 +139,8 @@ class SubmitAnswerView(APIView):
                 max_points=points_per_question
             )
 
-            logger.info(f"Evaluation result: is_correct={is_correct}, score={score}")
-
             # Store the answer with score
-            student_answer = StudentAnswer.objects.create(
+            StudentAnswer.objects.create(
                 exam=exam_session.exam,
                 question=question,
                 student=exam_session.student,
@@ -101,10 +149,7 @@ class SubmitAnswerView(APIView):
                 score=score
             )
 
-            logger.info(f"StudentAnswer created with ID: {student_answer.id}")
-
             # Update session data
-            session_data = request.session.get("adaptive_exam", {})
             session_data["answers"] = session_data.get("answers", {})
             session_data["answers"][question_id] = {
                 "answer": answer_text, 
@@ -115,15 +160,14 @@ class SubmitAnswerView(APIView):
             request.session["adaptive_exam"] = session_data
             request.session.modified = True
 
-            # Get next question
-            questions = QuestionBank.objects.filter(exam=exam_session.exam).order_by('difficulty_level')
+            # Get next question from selected questions
             current_index = session_data["current_index"]
+            has_more_questions = current_index < len(selected_question_ids)
             
             next_question_data = None
-            has_more_questions = current_index < len(questions)
-            
             if has_more_questions:
-                next_question = questions[current_index]
+                next_question_id = selected_question_ids[current_index]
+                next_question = QuestionBank.objects.get(id=next_question_id)
                 next_question_data = {
                     "id": next_question.id,
                     "question_text": next_question.question_text,
@@ -133,7 +177,7 @@ class SubmitAnswerView(APIView):
                     "option_d": next_question.option_d,
                     "difficulty_level": next_question.difficulty_level,
                     "question_number": current_index + 1,
-                    "total_questions": len(questions),
+                    "total_questions": len(selected_question_ids),
                     "question_type": next_question.question_type,
                     "points_per_question": round(points_per_question, 2)
                 }
@@ -149,8 +193,8 @@ class SubmitAnswerView(APIView):
             })
         except Exception as e:
             logger.error("Submit answer failed: %s", e)
-            logger.error("Request data: %s", request.data)
             return Response({"success": False, "error": str(e)}, status=500)
+
 @extend_schema(
     description="Finish an exam session and return results summary.",
     request=dict,
@@ -164,13 +208,18 @@ class FinishExamView(APIView):
 
             answers = StudentAnswer.objects.filter(exam=exam_session.exam, student=exam_session.student)
             
-            # Calculate actual scores
+            # ✅ FIX: Get the actual selected questions from session, not from database
+            session_data = request.session.get("adaptive_exam", {})
+            total_selected_questions = session_data.get("total_selected_questions", 10)
+            
+            # Calculate scores based on ACTUAL selected questions (10), not total created (15)
             total_score_earned = sum(answer.score for answer in answers)
             total_questions_answered = answers.count()
-            total_questions_in_exam = QuestionBank.objects.filter(exam=exam_session.exam).count()
             
-            # Calculate what the maximum possible score would be if all questions were answered perfectly
-            points_per_question = 100.0 / total_questions_in_exam if total_questions_in_exam > 0 else 10.0
+            # Calculate points per question based on selected questions (10), not total created (15)
+            points_per_question = 100.0 / total_selected_questions if total_selected_questions > 0 else 10.0
+            
+            # Calculate what the maximum possible score would be if all selected questions were answered perfectly
             max_possible_if_all_answered = 100.0  # Always 100 points total
             max_possible_with_answered_questions = total_questions_answered * points_per_question
             
@@ -180,11 +229,11 @@ class FinishExamView(APIView):
                 "success": True,
                 "exam_session_id": session_id,
                 "questions_answered": total_questions_answered,
-                "total_questions_in_exam": total_questions_in_exam,
+                "total_questions_in_exam": total_selected_questions,  # ✅ Show actual selected questions (10)
                 "correct_answers": correct_answers,
                 "total_score_earned": round(total_score_earned, 2),
                 "max_possible_score": max_possible_if_all_answered,
-                "percentage_of_exam_completed": round((total_questions_answered / total_questions_in_exam) * 100, 2),
+                "percentage_of_exam_completed": round((total_questions_answered / total_selected_questions) * 100, 2),  # ✅ Based on selected questions
                 "percentage_of_answered_correct": round((correct_answers / total_questions_answered) * 100, 2) if total_questions_answered > 0 else 0,
                 "points_per_question": round(points_per_question, 2),
                 "individual_scores": [{"question_id": answer.question.id, "score": answer.score, "max_score": points_per_question} for answer in answers]
@@ -192,6 +241,7 @@ class FinishExamView(APIView):
         except Exception as e:
             logger.error("Finish exam failed: %s", e)
             return Response({"success": False, "error": str(e)}, status=500)
+            
 @extend_schema(
     description="Get questions for an exam.",
     responses={200: dict}

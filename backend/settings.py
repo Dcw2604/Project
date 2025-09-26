@@ -158,6 +158,6 @@ SPECTACULAR_SETTINGS = {
 
 # Gemini configuration
 AI_PROVIDER = "gemini"
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "models/embedding-001")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

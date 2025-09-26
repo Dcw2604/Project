@@ -24,7 +24,7 @@ import google.generativeai as genai
 
 # קונפיגורציה
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model_name = os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash")
+model_name = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash")
 model = genai.GenerativeModel(model_name)
 
 # בדיקה בפועל

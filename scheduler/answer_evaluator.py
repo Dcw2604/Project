@@ -96,7 +96,7 @@ class AnswerEvaluator:
             prompt = self._create_evaluation_prompt(question_text, student_answer, sample_answer, max_points)
             
             # Get evaluation from Gemini
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-2.5-flash")
             response = model.generate_content(prompt)
             result_text = response.text or str(response)
             

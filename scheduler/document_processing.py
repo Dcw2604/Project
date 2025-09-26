@@ -36,7 +36,7 @@ class LLMProvider(Protocol):
 
 class GeminiFlashProvider:
     def __init__(self, model: Optional[str] = None, api_key: Optional[str] = None):
-        self.model = model or os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        self.model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
         if not self.api_key:
             logger.warning("GEMINI_API_KEY is not set. Calls will fail until configured.")
@@ -73,7 +73,7 @@ class GeminiFlashProvider:
         )
 
         try:
-            model = self._genai.GenerativeModel("gemini-1.5-flash")
+            model = self._genai.GenerativeModel("gemini-2.5-flash") 
             response = model.generate_content(prompt)
             return response.text or str(response)
         except Exception as e:
