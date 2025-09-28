@@ -72,8 +72,16 @@ class DocumentUploadView(APIView):
     responses={200: {"success": "boolean", "exam_id": "integer"}}
 )
 class ExamCreationView(APIView):
-    def post(self, request):
+    def post(self, request, exam_id):
         try:
+
+            student_id = request.data.get("student_id")
+            student = User.objects.get(id=student_id, role="student")
+
+            exam = Exam.objects.get(id=exam_id)
+
+            session = ExamSession.objects.create(exam=exam, student=student)
+
             doc_id = request.data.get("document_id")
             if not doc_id:
                 return Response({"success": False, "error": "document_id missing."}, status=400)
@@ -116,14 +124,30 @@ class ExamCreationView(APIView):
 )
 class StartExamView(APIView):
     def post(self, request, exam_id):
+        print("DEBUG: Using StartExamView from views.py")
         try:
+            print(f"DEBUG: Starting exam {exam_id}")
+            print(f"DEBUG: Request data: {request.data}")
+            print(f"DEBUG: Content type: {request.content_type}")
+            
             student_id = request.data.get("student_id")
+            print(f"DEBUG: Student ID from request: {student_id}")
+            print(f"DEBUG: Student ID type: {type(student_id)}")
+            
             student = User.objects.get(id=student_id, role="student")
-
+            print(f"DEBUG: Found student: {student.username}")
+            
             exam = Exam.objects.get(id=exam_id)
+            print(f"DEBUG: Found exam: {exam.id}")
+            
             session = ExamSession.objects.create(exam=exam, student=student)
+            print(f"DEBUG: Created session: {session.id}")
 
-            adaptive = AdaptiveExamSession()
+            # Get questions for this exam
+            questions = list(QuestionBank.objects.filter(exam=exam))
+            print(f"DEBUG: Found {len(questions)} questions for exam")
+            
+            adaptive = AdaptiveExamSession(questions)  # Pass questions to constructor
             request.session["adaptive_exam"] = adaptive.to_dict()
             request.session.modified = True
 
@@ -133,6 +157,8 @@ class StartExamView(APIView):
                 "message": "Exam started."
             })
         except Exception as e:
+            print(f"DEBUG: Exception occurred: {e}")
+            print(f"DEBUG: Exception type: {type(e)}")
             logger.error("Start exam failed: %s", e)
             return Response({"success": False, "error": str(e)}, status=500)
 
@@ -158,9 +184,11 @@ class SubmitAnswerView(APIView):
             question = QuestionBank.objects.get(id=question_id)
 
             evaluator = AnswerEvaluator()
+
             is_correct, score = evaluator.evaluate_answer(
                 question_text=question.question_text,
-                correct_answer=question.correct_answer,
+                #correct_answer=question.correct_answer,
+                correct_answer=question.sample_answer or question.correct_answer,
                 student_answer=answer_text
             )
 
@@ -172,10 +200,22 @@ class SubmitAnswerView(APIView):
                 is_correct=is_correct
             )
 
-            adaptive = AdaptiveExamSession.from_dict(request.session.get("adaptive_exam", {}))
-            adaptive.record_answer(question_id, is_correct)
+            
+            session_data = request.session.get("adaptive_exam", {})
+            #print(f"DEBUG: Session data: {session_data}")
+            adaptive = AdaptiveExamSession.from_dict(session_data)
+        
+            #adaptive.record_answer(question_id, answer_text, is_correct, max_attempts=3)
+            adaptive.record_attempt(question_id, answer_text, is_correct, max_attempts=3)
             request.session["adaptive_exam"] = adaptive.to_dict()
             request.session.modified = True
+
+            # Check attempts
+            attempts_used = adaptive.attempts.get(question_id, 0)
+            should_advance = is_correct or attempts_used >= 3
+            
+            print(f"DEBUG: question_id={question_id}, attempts_used={attempts_used}, should_advance={should_advance}")
+            print(f"DEBUG: adaptive.attempts={adaptive.attempts}")
 
             next_q = adaptive.select_next_question(list(QuestionBank.objects.filter(exam=exam_session.exam)))
             next_q_data = None
@@ -196,7 +236,9 @@ class SubmitAnswerView(APIView):
                 "success": True,
                 "is_correct": is_correct,
                 "score": score,
-                "next_question": next_q_data
+                "attempts_used": attempts_used,
+                "attempts_remaining": max(0, 3 - attempts_used),
+                "should_advance": should_advance
             })
 
         except Exception as e:

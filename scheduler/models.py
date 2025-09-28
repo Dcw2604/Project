@@ -91,3 +91,13 @@ class ChatInteraction(models.Model):
     sender = models.CharField(max_length=20, choices=SENDER_CHOICES)
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class QuestionAttempt(models.Model):
+    exam_session = models.ForeignKey(ExamSession, on_delete=models.CASCADE, related_name="question_attempts")
+    question = models.ForeignKey(QuestionBank, on_delete=models.CASCADE)
+    attempt_count = models.IntegerField(default=0)
+    last_attempt_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['exam_session', 'question']

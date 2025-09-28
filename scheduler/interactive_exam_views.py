@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
 
-from .models import Exam, ExamSession, QuestionBank, StudentAnswer, User
+from .models import Exam, ExamSession, QuestionBank, StudentAnswer, User, QuestionAttempt
 from .adaptive_testing_engine import AdaptiveExamSession
 from .answer_evaluator import AnswerEvaluator
 
@@ -121,7 +121,8 @@ class SubmitAnswerView(APIView):
             question = QuestionBank.objects.get(id=question_id)
             
             # Get selected questions from session
-            session_data = request.session.get("adaptive_exam", {})
+            #session_data = request.session.get("adaptive_exam", {})
+            session_data = dict(request.session.get("adaptive_exam", {}))
             selected_question_ids = session_data.get("selected_question_ids", [])
             total_selected_questions = session_data.get("total_selected_questions", 10)
             
@@ -156,12 +157,46 @@ class SubmitAnswerView(APIView):
                 "is_correct": is_correct,
                 "score": score
             }
-            session_data["current_index"] = session_data.get("current_index", 0) + 1
-            request.session["adaptive_exam"] = session_data
-            request.session.modified = True
+            
+            # Track attempts per question (DB-backed with session cache)
+            try:
+                # Get or create attempt record from DB
+                attempt_record, created = QuestionAttempt.objects.get_or_create(
+                    exam_session=exam_session,
+                    question=question,
+                    defaults={'attempt_count': 0}
+                )
+                
+                # Increment attempt count
+                attempt_record.attempt_count += 1
+                attempt_record.save()
+                
+                # Also update session cache
+                session_data["attempts"] = session_data.get("attempts", {})
+                session_data["attempts"][str(question_id)] = attempt_record.attempt_count
+                
+                current_attempts = attempt_record.attempt_count
+                should_advance = is_correct or current_attempts >= 3
+                
+                print(f"DEBUG: question_id={question_id}, current_attempts={current_attempts}")
+                print(f"DEBUG: is_correct={is_correct}, should_advance={should_advance}")
+                
+                if should_advance:
+                    if "current_index" not in session_data:
+                        session_data["current_index"] = 0
+                    session_data["current_index"] = session_data.get("current_index", 0) + 1
+                    print(f"DEBUG: Advanced to index {session_data['current_index']}")
+                
+                request.session["adaptive_exam"] = session_data
+                request.session.modified = True
+                
+            except Exception as attempt_error:
+                print(f"DEBUG: Error in attempt tracking: {attempt_error}")
+                current_attempts = 1
+                should_advance = False
 
             # Get next question from selected questions
-            current_index = session_data["current_index"]
+            current_index = session_data.get("current_index", 0)
             has_more_questions = current_index < len(selected_question_ids)
             
             next_question_data = None
@@ -187,6 +222,9 @@ class SubmitAnswerView(APIView):
                 "is_correct": is_correct,
                 "score": round(score, 2),
                 "max_score": round(points_per_question, 2),
+                "attempts_used": current_attempts,
+                "attempts_remaining": max(0, 3 - current_attempts),
+                "should_advance": should_advance,
                 "next_question": next_question_data,
                 "has_more_questions": has_more_questions,
                 "message": f"Answer submitted successfully. Score: {round(score, 2)}/{round(points_per_question, 2)}"
@@ -206,37 +244,29 @@ class FinishExamView(APIView):
             session_id = request.data.get("exam_session_id")
             exam_session = ExamSession.objects.get(id=session_id)
 
+            # Get all answers for this student in this exam
             answers = StudentAnswer.objects.filter(exam=exam_session.exam, student=exam_session.student)
             
-            # ✅ FIX: Get the actual selected questions from session, not from database
-            session_data = request.session.get("adaptive_exam", {})
-            total_selected_questions = session_data.get("total_selected_questions", 10)
+            # Count unique questions answered correctly
+            correct_question_ids = answers.filter(is_correct=True).values_list('question_id', flat=True).distinct()
+            correct_answers = len(correct_question_ids)
             
-            # Calculate scores based on ACTUAL selected questions (10), not total created (15)
-            total_score_earned = sum(answer.score for answer in answers)
-            total_questions_answered = answers.count()
+            # Get total questions in the exam from the database
+            total_questions_in_exam = QuestionBank.objects.filter(exam=exam_session.exam).count()
             
-            # Calculate points per question based on selected questions (10), not total created (15)
-            points_per_question = 100.0 / total_selected_questions if total_selected_questions > 0 else 10.0
-            
-            # Calculate what the maximum possible score would be if all selected questions were answered perfectly
-            max_possible_if_all_answered = 100.0  # Always 100 points total
-            max_possible_with_answered_questions = total_questions_answered * points_per_question
-            
-            correct_answers = answers.filter(is_correct=True).count()
+            # Count total questions actually answered
+            questions_answered = answers.values_list('question_id', flat=True).distinct().count()
 
             return Response({
                 "success": True,
                 "exam_session_id": session_id,
-                "questions_answered": total_questions_answered,
-                "total_questions_in_exam": total_selected_questions,  # ✅ Show actual selected questions (10)
+                "questions_answered": questions_answered,
+                "total_questions_in_exam": total_questions_in_exam,
                 "correct_answers": correct_answers,
-                "total_score_earned": round(total_score_earned, 2),
-                "max_possible_score": max_possible_if_all_answered,
-                "percentage_of_exam_completed": round((total_questions_answered / total_selected_questions) * 100, 2),  # ✅ Based on selected questions
-                "percentage_of_answered_correct": round((correct_answers / total_questions_answered) * 100, 2) if total_questions_answered > 0 else 0,
-                "points_per_question": round(points_per_question, 2),
-                "individual_scores": [{"question_id": answer.question.id, "score": answer.score, "max_score": points_per_question} for answer in answers]
+                "total_score_earned": correct_answers,  # Simple count
+                "max_possible_score": total_questions_in_exam,
+                "percentage_of_exam_completed": round((questions_answered / total_questions_in_exam) * 100, 2) if total_questions_in_exam > 0 else 0,
+                "percentage_of_answered_correct": round((correct_answers / questions_answered) * 100, 2) if questions_answered > 0 else 0
             })
         except Exception as e:
             logger.error("Finish exam failed: %s", e)
@@ -257,12 +287,16 @@ class GetExamQuestionsView(APIView):
                 questions_data.append({
                     "id": q.id,
                     "question_text": q.question_text,
-                    "option_a": q.option_a,
-                    "option_b": q.option_b,
-                    "option_c": q.option_c,
-                    "option_d": q.option_d,
+                    #"option_a": q.option_a,
+                    #"option_b": q.option_b,
+                    #"option_c": q.option_c,
+                    #"option_d": q.option_d,
                     "difficulty_level": q.difficulty_level
                 })
+
+            print(f"DEBUG: Returning {len(questions_data)} questions")
+            print(f"DEBUG: First question: {questions_data[0] if questions_data else 'No questions'}")
+            
             
             return Response({
                 "success": True,
@@ -270,6 +304,7 @@ class GetExamQuestionsView(APIView):
                 "questions": questions_data
             })
         except Exception as e:
+            print(f"DEBUG: Error in GetExamQuestionsView: {e}")
             return Response({"success": False, "error": str(e)}, status=500)
     
 @extend_schema(
@@ -319,5 +354,103 @@ class GetNextQuestionView(APIView):
                     "message": "No more questions. You can finish the exam."
                 })
                 
+        except Exception as e:
+            return Response({"success": False, "error": str(e)}, status=500)
+
+@extend_schema(
+    description="Get list of all exams",
+    responses={200: dict}
+)
+class GetExamsView(APIView):
+    def get(self, request):
+        try:
+            exams = Exam.objects.all().order_by('-created_at')
+            
+            exam_list = []
+            for exam in exams:
+                # Get question count for each exam
+                question_count = QuestionBank.objects.filter(exam=exam).count()
+                
+                exam_list.append({
+                    "id": exam.id,
+                    "title": f"Exam {exam.id}",  # You can add a title field to Exam model later
+                    "document_title": exam.document.title if exam.document else "Unknown Document",
+                    "total_questions": question_count,
+                    "created_at": exam.created_at.isoformat()
+                })
+            
+            return Response({
+                "success": True,
+                "exams": exam_list
+            })
+        except Exception as e:
+            return Response({"success": False, "error": str(e)}, status=500)
+
+@extend_schema(
+    description="Get exam results for teachers",
+    responses={200: dict}
+)
+class GetExamResultsView(APIView):
+    def get(self, request, exam_id):
+        try:
+            exam = Exam.objects.get(id=exam_id)
+            
+            # Get all exam sessions for this exam
+            sessions = ExamSession.objects.filter(exam=exam)
+            
+            results = []
+            for session in sessions:
+                # Get student's answers (same logic as FinishExamView)
+                answers = StudentAnswer.objects.filter(exam=session.exam, student=session.student)
+                
+                # Get session data to determine selected questions
+                # Note: We'll use a fallback since we don't have access to the original session
+                total_questions_in_exam = QuestionBank.objects.filter(exam=exam).count()
+                
+                # Calculate scores using the same logic as FinishExamView
+                total_score_earned = sum(answer.score for answer in answers)
+                total_questions_answered = answers.count()
+                
+                # Calculate points per question (same as FinishExamView)
+                points_per_question = 100.0 / total_questions_in_exam if total_questions_in_exam > 0 else 10.0
+                
+                # Count correct answers using the same logic as FinishExamView
+                correct_question_ids = answers.filter(is_correct=True).values_list('question_id', flat=True).distinct()
+                correct_answers = len(correct_question_ids)
+                
+                # Get individual scores for each question (same as FinishExamView)
+                individual_scores = []
+                for answer in answers:
+                    individual_scores.append({
+                        "question_id": answer.question.id,
+                        "question_text": answer.question.question_text,
+                        "student_answer": answer.answer,
+                        "is_correct": answer.is_correct,
+                        "score": answer.score,
+                        "max_score": points_per_question,
+                        "submitted_at": answer.submitted_at.isoformat()
+                    })
+                
+                results.append({
+                    "student_name": session.student.username,
+                    "student_id": session.student.id,
+                    "score": correct_answers,  # Count of correct questions
+                    "total_questions": total_questions_in_exam,
+                    "questions_answered": total_questions_answered,
+                    "total_score_earned": round(total_score_earned, 2),
+                    "max_possible_score": 100.0,
+                    "percentage_of_exam_completed": round((total_questions_answered / total_questions_in_exam) * 100, 2) if total_questions_in_exam > 0 else 0,
+                    "percentage_of_answered_correct": round((correct_answers / total_questions_answered) * 100, 2) if total_questions_answered > 0 else 0,
+                    "points_per_question": round(points_per_question, 2),
+                    "individual_scores": individual_scores,
+                    "completed_at": session.completed_at,
+                    "started_at": session.started_at
+                })
+            
+            return Response({
+                "success": True,
+                "exam_id": exam_id,
+                "results": results
+            })
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=500)
