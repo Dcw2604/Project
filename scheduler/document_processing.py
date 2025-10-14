@@ -11,6 +11,7 @@ import json
 import re
 import logging
 from typing import List, Dict, Any, Optional, Protocol
+from .topic_extractor import TopicExtractor
 
 # OCR/Document utilities
 from . import document_utils
@@ -65,7 +66,8 @@ class GeminiFlashProvider:
             '      "question_type": "open_ended",\n'
             '      "difficulty_level": 3,\n'
             '      "expected_keywords": ["keyword1", "keyword2", "keyword3"],\n'
-            '      "sample_answer": "A sample answer that demonstrates the expected response"\n'
+            '      "sample_answer": "A sample answer that demonstrates the expected response",\n'
+            '      "topics": ["Topic1", "Topic2"]\n'  # ADD THIS LINE
             '    }\n'
             '  ]\n'
             "}\n\n"
@@ -73,9 +75,9 @@ class GeminiFlashProvider:
         )
 
         try:
-            model = self._genai.GenerativeModel("gemini-2.5-flash") 
+            model = self._genai.GenerativeModel(self.model)
             response = model.generate_content(prompt)
-            return response.text or str(response)
+            return response.text
         except Exception as e:
             logger.error("Gemini API call failed: %s", e)
             return "{\"questions\": []}"
@@ -83,6 +85,7 @@ class GeminiFlashProvider:
 class GenericDocumentProcessor:
     def __init__(self, provider: Optional[LLMProvider] = None):
         self.provider: LLMProvider = provider or GeminiFlashProvider()
+        self.topic_extractor = TopicExtractor()
 
     # ---------------- JSON extraction ----------------
     def extract_json_from_response(self, content: str) -> Dict[str, Any]:
@@ -130,8 +133,18 @@ class GenericDocumentProcessor:
             lvl4 = self.extract_questions_by_level(cleaned, "4", "intermediate")
             lvl5 = self.extract_questions_by_level(cleaned, "5", "advanced")
             chunks = self.prepare_rag_chunks(cleaned)
+
+            # add topics to questions
+            all_questions = lvl3 + lvl4 + lvl5
+            for question_data in all_questions:
+                logger.info(f"  Before topic check: q has 'topics' key = {'topics' in question_data}, value = {question_data.get('topics', 'NOT FOUND')[:100] if question_data.get('topics') else 'EMPTY'}") 
+                # הוסף נושאים לשאלה
+                if not question_data.get("topics"):
+                    question_data["topics"] = self.topic_extractor.extract_topics_from_question(
+                        question_data["question_text"]
+                    )
             
-            logger.info(f"Generated questions - Level 3: {len(lvl3)}, Level 4: {len(lvl4)}, Level 5: {len(lvl5)}")
+                logger.info(f"  After topic check: topics = {question_data.get('topics', [])}")
             
             return {
                 "level_3_questions": lvl3,

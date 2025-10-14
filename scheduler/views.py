@@ -15,6 +15,10 @@ from .math_document_processor import MathDocumentProcessor
 from .models import Document, Exam, QuestionBank, ExamSession, StudentAnswer, User
 from .adaptive_testing_engine import AdaptiveExamSession
 from .answer_evaluator import AnswerEvaluator
+from .topic_extractor import TopicExtractor
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import TopicPerformance, StudentAnalytics
 
 
 logger = logging.getLogger(__name__)
@@ -100,7 +104,18 @@ class ExamCreationView(APIView):
                         explanation=q.get("explanation", ""),
                         difficulty_level=lvl,
                     )
-
+            from .topic_extractor import TopicExtractor
+            topic_extractor = TopicExtractor()
+            
+            # קבל את כל השאלות שנשמרו
+            saved_questions = QuestionBank.objects.filter(exam=exam)
+            
+            # הקצה נושאים לכל שאלה
+            for question_obj in saved_questions:
+                topic_extractor.assign_topics_to_question(question_obj)
+            
+            logger.info(f"Assigned topics to {saved_questions.count()} questions")
+            
             return Response({"success": True, "exam_id": exam.id, "questions": result["total_questions"]})
 
         except Exception as e:

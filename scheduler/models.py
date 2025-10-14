@@ -91,3 +91,50 @@ class ChatInteraction(models.Model):
     sender = models.CharField(max_length=20, choices=SENDER_CHOICES)
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+class Topic(models.Model):
+    name = models.CharField(max_length=100, unique=True)  # "Graphs", "Complexity", etc.
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+# קישור בין שאלות לנושאים
+class QuestionTopic(models.Model):
+    question = models.ForeignKey(QuestionBank, on_delete=models.CASCADE, related_name="topics")
+    topic = models.ForeignKey(Topic, on_delete=models.CASCADE, related_name="questions")
+    confidence_score = models.FloatField(default=1.0)  # כמה בטוחים שזה הנושא
+
+    class Meta:
+        unique_together = ('question', 'topic')
+
+# ביצועים של תלמיד לפי נושא
+class TopicPerformance(models.Model):
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name="topic_performance")
+    topic = models.ForeignKey(Topic, on_delete=models.CASCADE, related_name="student_performance")
+    exam_session = models.ForeignKey(ExamSession, on_delete=models.CASCADE, related_name="topic_scores")
+    
+    questions_answered = models.IntegerField(default=0)
+    correct_answers = models.IntegerField(default=0)
+    total_score = models.FloatField(default=0.0)
+    percentage_score = models.FloatField(default=0.0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('student', 'topic', 'exam_session')
+
+# אנליטיקס כללי של תלמיד
+class StudentAnalytics(models.Model):
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name="analytics")
+    exam_session = models.ForeignKey(ExamSession, on_delete=models.CASCADE, related_name="student_analytics")
+    
+    total_questions = models.IntegerField(default=0)
+    total_correct = models.IntegerField(default=0)
+    overall_percentage = models.FloatField(default=0.0)
+    
+    strongest_topics = models.TextField(blank=True, null=True)  # JSON string
+    weakest_topics = models.TextField(blank=True, null=True)    # JSON string
+    
+    created_at = models.DateTimeField(auto_now_add=True)

@@ -114,6 +114,10 @@ if DEBUG:
             "rest_framework.authentication.SessionAuthentication",
             "rest_framework.authentication.BasicAuthentication",
         ],
+        "DEFAULT_AUTHENTICATION_CLASSES": [
+            "rest_framework.authentication.SessionAuthentication",
+            "rest_framework.authentication.BasicAuthentication",
+        ],
         "DEFAULT_PERMISSION_CLASSES": [
             "rest_framework.permissions.AllowAny",  # Allow public access in development
         ],
@@ -122,6 +126,10 @@ else:
     # Production settings - require authentication
     REST_FRAMEWORK = {
         "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+        "DEFAULT_AUTHENTICATION_CLASSES": [
+            "rest_framework.authentication.SessionAuthentication",
+            "rest_framework.authentication.BasicAuthentication",
+        ],
         "DEFAULT_AUTHENTICATION_CLASSES": [
             "rest_framework.authentication.SessionAuthentication",
             "rest_framework.authentication.BasicAuthentication",
@@ -161,3 +169,24 @@ AI_PROVIDER = "gemini"
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "models/embedding-001")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'scheduler': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}

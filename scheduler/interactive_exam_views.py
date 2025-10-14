@@ -7,7 +7,11 @@ from drf_spectacular.utils import extend_schema
 from .models import Exam, ExamSession, QuestionBank, StudentAnswer, User
 from .adaptive_testing_engine import AdaptiveExamSession
 from .answer_evaluator import AnswerEvaluator
-
+from .models import TopicPerformance, StudentAnalytics, QuestionTopic
+from .topic_extractor import TopicExtractor
+import json
+from rest_framework.decorators import api_view
+from .models import QuestionTopic 
 
 logger = logging.getLogger(__name__)
 
@@ -94,29 +98,51 @@ class StartExamView(APIView):
 class SubmitAnswerView(APIView):
     def post(self, request, exam_id):
         try:
+
+            # # Get data from request (DRF already parses JSON)
+            # session_id = request.data.get("exam_session_id")
+            # question_id = request.data.get("question_id")
+            # answer_text = request.data.get("answer")
+
+            # # Clean the answer text
+            # if answer_text:
+            #     answer_text = str(answer_text).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            #     answer_text = ' '.join(answer_text.split())
             # Get raw body first (before Django processes it)
-            raw_body = request.body.decode('utf-8', errors='ignore')
+            # raw_body = request.body.decode('utf-8', errors='ignore')
             
-            # Try to parse JSON normally first
-            import json
-            try:
-                request_data = json.loads(raw_body)
-                session_id = request_data.get("exam_session_id")
-                question_id = request_data.get("question_id")
-                answer_text = request_data.get("answer")
-            except json.JSONDecodeError:
-                # If JSON parsing fails, clean the raw body and try again
-                cleaned_body = raw_body.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
-                request_data = json.loads(cleaned_body)
-                session_id = request_data.get("exam_session_id")
-                question_id = request_data.get("question_id")
-                answer_text = request_data.get("answer")
+            # # Try to parse JSON normally first
+            # import json
+            # try:
+            #     request_data = json.loads(raw_body)
+            #     session_id = request_data.get("exam_session_id")
+            #     question_id = request_data.get("question_id")
+            #     answer_text = request_data.get("answer")
+            # except json.JSONDecodeError as e:
+            #     logger.error(f"First parse failed: {e}") 
+            #     # If JSON parsing fails, clean the raw body and try again
+            #     cleaned_body = raw_body.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            #     logger.error(f"Cleaned body: {cleaned_body[:200]}")  # <-- ADD THIS to see what's being parsed
+            #     try: 
+            #         request_data = json.loads(cleaned_body)
+            #         session_id = request_data.get("exam_session_id")
+            #         question_id = request_data.get("question_id")
+            #         answer_text = request_data.get("answer")
+            #     except json.JSONDecodeError as e2:  # <-- ADD THIS
+            #         logger.error(f"Second parse also failed: {e2}") 
+            #         return Response({"success": False, "error": f"Invalid JSON: {str(e2)}"}, status=400)
+            # # Clean the answer text
+            # if answer_text:
+            #     answer_text = str(answer_text).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            #     answer_text = ' '.join(answer_text.split())
+            # Use DRF's built-in parsing (no manual body reading needed)
+            session_id = request.data.get("exam_session_id")
+            question_id = request.data.get("question_id")
+            answer_text = request.data.get("answer")
 
             # Clean the answer text
             if answer_text:
-                answer_text = str(answer_text).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
-                answer_text = ' '.join(answer_text.split())
-
+                answer_text = str(answer_text).strip()
             exam_session = ExamSession.objects.get(id=session_id)
             question = QuestionBank.objects.get(id=question_id)
             
@@ -224,7 +250,8 @@ class FinishExamView(APIView):
             max_possible_with_answered_questions = total_questions_answered * points_per_question
             
             correct_answers = answers.filter(is_correct=True).count()
-
+            calculate_topic_performance(exam_session, answers)
+            create_student_analytics(exam_session)
             return Response({
                 "success": True,
                 "exam_session_id": session_id,
@@ -238,6 +265,7 @@ class FinishExamView(APIView):
                 "points_per_question": round(points_per_question, 2),
                 "individual_scores": [{"question_id": answer.question.id, "score": answer.score, "max_score": points_per_question} for answer in answers]
             })
+       
         except Exception as e:
             logger.error("Finish exam failed: %s", e)
             return Response({"success": False, "error": str(e)}, status=500)
@@ -321,3 +349,156 @@ class GetNextQuestionView(APIView):
                 
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=500)
+def calculate_topic_performance(exam_session, answers):
+    """מחשב ביצועים לפי נושאים"""
+    topic_extractor = TopicExtractor()
+    
+    # קבל את כל הנושאים במבחן
+    all_topics = set()
+    for answer in answers:
+        question_topics = topic_extractor.get_topics_for_question(answer.question)
+        logger.info(f"  Question {answer.question.id} topics: {list(question_topics)}")
+        all_topics.update(question_topics)
+    logger.info(f"  Total unique topics: {len(all_topics)} - {list(all_topics)}")
+    # חשב ביצועים לכל נושא
+    for topic in all_topics:
+        # קבל שאלות בנושא הזה
+        topic_questions = [qt.question for qt in QuestionTopic.objects.filter(topic=topic)]
+        
+        # קבל תשובות לשאלות האלה
+        topic_answers = answers.filter(question__in=topic_questions)
+        
+        # חשב אחוזים
+        total_questions = topic_answers.count()
+        correct_answers = topic_answers.filter(is_correct=True).count()
+        percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+        
+        # שמור במסד הנתונים
+        TopicPerformance.objects.update_or_create(
+            student=exam_session.student,
+            topic=topic,
+            exam_session=exam_session,
+            defaults={
+                'questions_answered': total_questions,
+                'correct_answers': correct_answers,
+                'percentage_score': percentage
+            }
+        )
+
+def create_student_analytics(exam_session):
+    """יוצר אנליטיקס כללי של התלמיד"""
+    # Get actual answers instead of relying on topic performance
+    answers = StudentAnswer.objects.filter(
+        student=exam_session.student,
+        exam=exam_session.exam
+    )
+    # DEBUG :
+    logger.info(f"DEBUG create_student_analytics:")
+    logger.info(f"  exam_session.id: {exam_session.id}")
+    logger.info(f"  student.id: {exam_session.student.id}")
+    logger.info(f"  exam.id: {exam_session.exam.id}")
+    logger.info(f"  Found {answers.count()} answers")
+    for ans in answers:
+        logger.info(f"    Answer: Q{ans.question.id}, is_correct={ans.is_correct}")
+    
+    total_questions = answers.count()
+    total_correct = answers.filter(is_correct=True).count()
+    overall_percentage = (total_correct / total_questions * 100) if total_questions > 0 else 0
+    
+    # Try to get topic performances if they exist
+    topic_performances = TopicPerformance.objects.filter(
+        student=exam_session.student,
+        exam_session=exam_session
+    )
+    
+    # זהה נקודות חוזק וחולשה
+    strengths = [tp.topic.name for tp in topic_performances if tp.percentage_score >= 80]
+    weaknesses = [tp.topic.name for tp in topic_performances if tp.percentage_score < 60]
+    
+    # שמור אנליטיקס
+    StudentAnalytics.objects.update_or_create(
+        student=exam_session.student,
+        exam_session=exam_session,
+        defaults={
+            'total_questions': total_questions,
+            'total_correct': total_correct,
+            'overall_percentage': overall_percentage,
+            'strongest_topics': json.dumps(strengths),
+            'weakest_topics': json.dumps(weaknesses)
+        }
+    )
+
+class StudentAnalyticsView(APIView):
+    def get(self, request, student_id, exam_session_id):
+        # ... same function content ...
+        """מחזיר אנליטיקס מפורט של תלמיד"""
+        try:
+            # קבל אנליטיקס כללי
+            analytics = StudentAnalytics.objects.get(
+                student_id=student_id,
+                exam_session_id=exam_session_id
+            )
+            
+            # קבל ביצועים לפי נושאים
+            topic_performances = TopicPerformance.objects.filter(
+                student_id=student_id,
+                exam_session_id=exam_session_id
+            ).order_by('-percentage_score')
+            
+            response_data = {
+                'student_name': analytics.student.username,
+                'exam_session_id': exam_session_id,
+                'overall_percentage': analytics.overall_percentage,
+                'total_questions': analytics.total_questions,
+                'total_correct': analytics.total_correct,
+                'topic_breakdown': [
+                    {
+                        'topic_name': tp.topic.name,
+                        'percentage': tp.percentage_score,
+                        'questions_answered': tp.questions_answered,
+                        'correct_answers': tp.correct_answers,
+                        'performance_level': self.get_performance_level(tp.percentage_score)
+                    }
+                    for tp in topic_performances
+                ],
+                'strengths': json.loads(analytics.strongest_topics or '[]'),
+                'weaknesses': json.loads(analytics.weakest_topics or '[]')
+            }
+            
+            return Response(response_data)
+            
+        except StudentAnalytics.DoesNotExist:
+            return Response({'error': 'Analytics not found'}, status=404)
+
+    def get_performance_level(self, percentage):
+        """מחזיר רמת ביצוע לפי אחוז"""
+        if percentage >= 90:
+            return 'Excellent'
+        elif percentage >= 80:
+            return 'Good'
+        elif percentage >= 70:
+            return 'Average'
+        elif percentage >= 60:
+            return 'Below Average'
+        else:
+            return 'Needs Improvement'
+
+class AllStudentsAnalyticsView(APIView):
+    def get(self, request, exam_session_id):
+        # ... same function content ...
+        """מחזיר אנליטיקס של כל התלמידים במבחן"""
+        analytics = StudentAnalytics.objects.filter(
+            exam_session_id=exam_session_id
+        ).order_by('-overall_percentage')
+        
+        response_data = [
+            {
+                'student_name': a.student.username,
+                'overall_percentage': a.overall_percentage,
+                'total_questions': a.total_questions,
+                'total_correct': a.total_correct
+            }
+            for a in analytics
+        ]
+        
+        return Response(response_data)

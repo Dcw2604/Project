@@ -9,6 +9,7 @@ from .document_utils import extract_text_from_file
 from .models import Document, Exam, QuestionBank
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @extend_schema(
@@ -85,7 +86,8 @@ class ExamCreationView(APIView):
             exam = Exam.objects.create(document=document, total_questions=result["total_questions"])
             for lvl, key in [(3, "level_3_questions"), (4, "level_4_questions"), (5, "level_5_questions")]:
                 for q in result.get(key, []):
-                    QuestionBank.objects.create(
+                    logger.info(f"DEBUG: Processing question at level {lvl}, question_text: {q.get('question_text', '')[:100]}")
+                    question = QuestionBank.objects.create(
                         exam=exam,
                         document=document,
                         question_text=q.get("question_text"),
@@ -101,7 +103,16 @@ class ExamCreationView(APIView):
                         explanation=q.get("explanation", ""),
                         difficulty_level=lvl,
                  )
-
+                    topics = q.get("topics", [])
+                    logger.info(f"DEBUG: Question {question.id} at level {lvl}, has topics: {topics}")   #debug
+                    if topics:
+                        from .models import Topic, QuestionTopic
+                        for topic_name in topics:
+                            topic, _ = Topic.objects.get_or_create(name=topic_name)
+                            QuestionTopic.objects.get_or_create(question=question, topic=topic)
+                            logger.info(f"  Saved topic '{topic_name}' for Question {question.id}")
+                    else:
+                        logger.info(f"  No topics found in question data!")
             return Response({"success": True, "exam_id": exam.id, "questions": result["total_questions"]})
         except Exception as e:
             logger.error("Exam creation failed: %s", e)
