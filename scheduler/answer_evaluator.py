@@ -34,9 +34,9 @@ except ImportError:
 
 
 class AnswerEvaluator:
-    def __init__(self):
+    def __init__(self, grading_instructions: str = ""):
         self.gemini_available = GEMINI_AVAILABLE
-    
+        self.grading_instructions = grading_instructions
     def evaluate_answer(self, question_text: str, correct_answer: str, student_answer: str, 
                        question_type: str = "multiple_choice", sample_answer: str = "", 
                        max_points: int = 10) -> Tuple[bool, float]:
@@ -93,8 +93,7 @@ class AnswerEvaluator:
         
         try:
             # Create prompt for Gemini
-            prompt = self._create_evaluation_prompt(question_text, student_answer, sample_answer, max_points)
-            
+            prompt = self._create_evaluation_prompt(question_text, student_answer, sample_answer, max_points, self.grading_instructions)
             # Get evaluation from Gemini
             model = genai.GenerativeModel("gemini-2.5-flash")
             response = model.generate_content(prompt)
@@ -115,7 +114,7 @@ class AnswerEvaluator:
             # Fallback to similarity evaluation
             return self._evaluate_similarity(sample_answer, student_answer, max_points)
     
-    def _create_evaluation_prompt(self, question_text: str, student_answer: str, sample_answer: str, max_points: int) -> str:
+    def _create_evaluation_prompt(self, question_text: str, student_answer: str, sample_answer: str, max_points: int, grading_instructions: str = "") -> str:
         """Create a prompt for Gemini to evaluate the answer"""
         
         prompt = f"""
@@ -129,16 +128,26 @@ STUDENT'S ANSWER: {student_answer}
 
 MAXIMUM POINTS: {max_points}
 
+LANGUAGE: Provide all feedback and reasoning in HEBREW language.
+
 Please evaluate the student's answer and provide:
 1. A score from 0 to {max_points} points
 2. Brief feedback explaining the score
 
 EVALUATION CRITERIA:
+{f'''
+SPECIFIC GRADING INSTRUCTIONS FROM TEACHER:
+{grading_instructions}
+
+Use the above instructions as your PRIMARY evaluation criteria.
+''' if grading_instructions else '''
+GENERAL CRITERIA (no specific instructions provided):
 - Give credit for correct concepts even if wording is different
 - Consider partial credit for partially correct answers
 - Be generous but fair in scoring
 - Focus on understanding, not exact wording
 - Award points for relevant knowledge demonstrated
+'''}
 
 Respond in this EXACT JSON format:
 {{

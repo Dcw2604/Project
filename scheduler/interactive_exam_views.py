@@ -154,8 +154,11 @@ class SubmitAnswerView(APIView):
             # Calculate points per question (100 divided by selected questions)
             points_per_question = 100.0 / total_selected_questions if total_selected_questions > 0 else 10.0
 
-            # Use improved evaluator with calculated points
-            evaluator = AnswerEvaluator()
+            # Get grading instructions from the exam's document
+            grading_instructions = exam_session.exam.document.grading_instructions or ""
+
+            # Use improved evaluator with calculated points and grading instructions
+            evaluator = AnswerEvaluator(grading_instructions=grading_instructions)
             is_correct, score = evaluator.evaluate_answer(
                 question_text=question.question_text,
                 correct_answer=question.correct_answer,

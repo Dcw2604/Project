@@ -58,6 +58,7 @@ class GeminiFlashProvider:
             f"at {difficulty} level (Level {level}) from the following content.\n\n"
             "IMPORTANT: Create questions that require students to write detailed answers, "
             "explain concepts, analyze problems, or demonstrate understanding.\n\n"
+            "LANGUAGE: Generate all questions, answers, topics, and keywords in HEBREW language.\n\n"
             "Return ONLY valid JSON in this exact format:\n"
             "{\n"
             '  "questions": [\n'

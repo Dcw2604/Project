@@ -22,6 +22,10 @@ logger.setLevel(logging.INFO)
                     "type": "string",
                     "format": "binary",
                     "description": "Upload a PDF, image or text file"
+                },
+                "grading_instructions": {
+                    "type": "string",
+                    "description": "Optional grading criteria for evaluating student answers (e.g., focus on algorithm complexity, clarity, correctness)"
                 }
             },
             "required": ["file"],
@@ -35,12 +39,13 @@ class DocumentUploadView(APIView):
             file = request.FILES.get("file")
             if not file:
                 return Response({"success": False, "error": "No file uploaded."}, status=400)
-
+            grading_instructions = request.data.get("grading_instructions", "")
             # שמירה במסד נתונים
             doc = Document.objects.create(
                 title=file.name,
                 file=file,
                 processing_status="pending",
+                grading_instructions=grading_instructions,
             )
 
             # Extract text from file using the correct function

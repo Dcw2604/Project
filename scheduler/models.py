@@ -25,6 +25,7 @@ class Document(models.Model):
     rag_chunks = models.TextField(blank=True, null=True)     # JSON as text
     processing_status = models.CharField(max_length=20, default="pending")
     questions_generated_count = models.IntegerField(default=0)
+    grading_instructions = models.TextField(blank=True, null=True, help_text="Teacher's instructions for how to evaluate student answers")
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
 
