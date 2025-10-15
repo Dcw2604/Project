@@ -1,52 +1,67 @@
-import { useState } from 'react'
-import { useUploadDocument } from '@/lib/queries'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { useToast } from '@/hooks/use-toast'
-import { Upload, FileText } from 'lucide-react'
+import { useState } from "react";
+import { useUploadDocument } from "@/lib/queries";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+import { Upload, FileText } from "lucide-react";
 
 export default function UploadDocument() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const uploadMutation = useUploadDocument()
-  const { toast } = useToast()
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [gradingInstructions, setGradingInstructions] = useState("");
+  const uploadMutation = useUploadDocument();
+  const { toast } = useToast();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+    const file = e.target.files?.[0];
     if (file) {
-      setSelectedFile(file)
+      setSelectedFile(file);
     }
-  }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedFile) return
+    e.preventDefault();
+    if (!selectedFile) return;
 
     try {
-      const result = await uploadMutation.mutateAsync(selectedFile)
-      
+      const result = await uploadMutation.mutateAsync({
+        file: selectedFile,
+        gradingInstructions: gradingInstructions.trim() || undefined,
+      });
+
       if (result.success) {
-        const filename = result.filename || selectedFile.name
+        const filename = result.filename || selectedFile.name;
         toast({
           title: "Upload Successful",
           description: `Document "${filename}" uploaded successfully`,
-        })
-        setSelectedFile(null)
+        });
+        setSelectedFile(null);
+        setGradingInstructions("");
         // Reset file input
-        const fileInput = document.getElementById('file-upload') as HTMLInputElement
-        if (fileInput) fileInput.value = ''
+        const fileInput = document.getElementById(
+          "file-upload"
+        ) as HTMLInputElement;
+        if (fileInput) fileInput.value = "";
       } else {
-        throw new Error('Upload failed')
+        throw new Error("Upload failed");
       }
     } catch (error) {
       toast({
         title: "Upload Failed",
-        description: error instanceof Error ? error.message : 'Failed to upload document',
+        description:
+          error instanceof Error ? error.message : "Failed to upload document",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   return (
     <Card>
@@ -73,9 +88,27 @@ export default function UploadDocument() {
             {selectedFile && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <FileText className="h-4 w-4" />
-                {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                {selectedFile.name} (
+                {(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="grading-instructions">
+              Grading Instructions (Optional)
+            </Label>
+            <Input
+              id="grading-instructions"
+              placeholder="הוסף הערכות לבדיקת התשובות... למשל: שים דגש על מורכבות הפתרון, בדוק את הדיוק במונחים טכניים"
+              value={gradingInstructions}
+              onChange={(e) => setGradingInstructions(e.target.value)}
+              disabled={uploadMutation.isPending}
+              className="min-h-[80px]"
+            />
+            <p className="text-sm text-muted-foreground">
+              ספק הנחיות איך Gemini צריך להעריך תשובות של תלמידים
+            </p>
           </div>
 
           <Button
@@ -83,18 +116,18 @@ export default function UploadDocument() {
             disabled={!selectedFile || uploadMutation.isPending}
             className="w-full"
           >
-            {uploadMutation.isPending ? 'Uploading...' : 'Upload Document'}
+            {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
           </Button>
         </form>
 
         {uploadMutation.isError && (
           <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
             <p className="text-sm text-red-600">
-              Upload failed: {uploadMutation.error?.message || 'Unknown error'}
+              Upload failed: {uploadMutation.error?.message || "Unknown error"}
             </p>
           </div>
         )}
       </CardContent>
     </Card>
-  )
+  );
 }

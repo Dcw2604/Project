@@ -1,27 +1,34 @@
-import { useState } from 'react'
-import { useAuth } from '@/lib/auth'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useToast } from '@/hooks/use-toast'
-import { LogOut, Upload, Plus, Heart, BarChart3 } from 'lucide-react'
-import UploadDocument from './UploadDocument'
-import CreateExam from './CreateExam'
-import HealthPanel from './HealthPanel'
-import ExamResults from './ExamResults'
+import { useState } from "react";
+import { useAuth } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { LogOut, Upload, Plus, Heart, BarChart3, FileText } from "lucide-react";
+import UploadDocument from "./UploadDocument";
+import CreateExam from "./CreateExam";
+import HealthPanel from "./HealthPanel";
+import ExamResults from "./ExamResults";
+import ViewQuestions from "./ViewQuestions";
 
 export default function TeacherDashboard() {
-  const { user, logout } = useAuth()
-  const { toast } = useToast()
-  const [activeTab, setActiveTab] = useState('upload')
+  const { user, logout } = useAuth();
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("upload");
 
   const handleLogout = () => {
-    logout()
+    logout();
     toast({
       title: "Signed Out",
       description: "You have been signed out successfully",
-    })
-  }
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -47,8 +54,12 @@ export default function TeacherDashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="space-y-6"
+        >
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="upload" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
               Upload
@@ -56,6 +67,10 @@ export default function TeacherDashboard() {
             <TabsTrigger value="create" className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
               Create Exam
+            </TabsTrigger>
+            <TabsTrigger value="questions" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              View Questions
             </TabsTrigger>
             <TabsTrigger value="health" className="flex items-center gap-2">
               <Heart className="h-4 w-4" />
@@ -75,6 +90,10 @@ export default function TeacherDashboard() {
             <CreateExam />
           </TabsContent>
 
+          <TabsContent value="questions">
+            <ViewQuestions />
+          </TabsContent>
+
           <TabsContent value="health">
             <HealthPanel />
           </TabsContent>
@@ -85,5 +104,5 @@ export default function TeacherDashboard() {
         </Tabs>
       </main>
     </div>
-  )
+  );
 }

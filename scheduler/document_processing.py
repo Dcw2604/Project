@@ -72,7 +72,7 @@ class GeminiFlashProvider:
             '    }\n'
             '  ]\n'
             "}\n\n"
-            "Content:\n" + content[:3000]
+            "Content:\n" + content[:9000]
         )
 
         try:

@@ -1,38 +1,49 @@
-import { useState, useEffect } from 'react'
-import { useAuth } from '@/lib/auth'
-import { useExamRunner } from '@/lib/queries'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress } from '@/components/ui/progress'
-import { useToast } from '@/hooks/use-toast'
-import { ArrowLeft, Clock, CheckCircle, XCircle, Flag } from 'lucide-react'
-import QuestionCard from './QuestionCard'
-import type { Question } from '@/lib/types'
+import { useState, useEffect } from "react";
+import { useAuth } from "@/lib/auth";
+import { useExamRunner } from "@/lib/queries";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { useToast } from "@/hooks/use-toast";
+import { ArrowLeft, Clock, CheckCircle, XCircle, Flag } from "lucide-react";
+import QuestionCard from "./QuestionCard";
+import type { Question } from "@/lib/types";
 
 interface ExamRunnerProps {
-  examId: string | number
-  onComplete: () => void
-  onBack: () => void
+  examId: string | number;
+  onComplete: () => void;
+  onBack: () => void;
 }
 
 interface ExamState {
-  sessionId: number | null
-  currentQuestionIndex: number
-  answers: Record<number, string>
-  attemptsUsed: Record<number, number>
-  questions: Question[]
-  isFinished: boolean
-  score: number | null
-  totalQuestions: number | null  // Add this line
-  showHint: boolean
-  hint: string
+  sessionId: number | null;
+  currentQuestionIndex: number;
+  answers: Record<number, string>;
+  attemptsUsed: Record<number, number>;
+  questions: Question[];
+  isFinished: boolean;
+  score: number | null;
+  totalQuestions: number | null; // Add this line
+  showHint: boolean;
+  hint: string;
 }
 
-export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerProps) {
-  const { user } = useAuth()
-  const { toast } = useToast()
-  const { startExam, questions, submitAnswers, finishExam, isLoading, error } = useExamRunner(examId)
-  
+export default function ExamRunner({
+  examId,
+  onComplete,
+  onBack,
+}: ExamRunnerProps) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const { startExam, questions, submitAnswers, finishExam, isLoading, error } =
+    useExamRunner(examId);
+
   const [examState, setExamState] = useState<ExamState>({
     sessionId: null,
     currentQuestionIndex: 0,
@@ -43,209 +54,186 @@ export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerPro
     score: null,
     totalQuestions: null,
     showHint: false,
-    hint: ''
-  })
+    hint: "",
+  });
 
-  const [timeRemaining, setTimeRemaining] = useState(30 * 60) // 30 minutes in seconds
+  const [timeRemaining, setTimeRemaining] = useState(30 * 60); // 30 minutes in seconds
 
   // Load saved state from sessionStorage
   useEffect(() => {
-    const savedState = sessionStorage.getItem(`exam_${examId}`)
+    const savedState = sessionStorage.getItem(`exam_${examId}`);
     if (savedState) {
       try {
-        const parsed = JSON.parse(savedState)
-        setExamState(prev => ({ ...prev, ...parsed }))
+        const parsed = JSON.parse(savedState);
+        setExamState((prev) => ({ ...prev, ...parsed }));
       } catch (error) {
-        console.error('Failed to load saved exam state:', error)
+        console.error("Failed to load saved exam state:", error);
       }
     }
-  }, [examId])
+  }, [examId]);
 
   // Save state to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem(`exam_${examId}`, JSON.stringify(examState))
-  }, [examId, examState])
+    sessionStorage.setItem(`exam_${examId}`, JSON.stringify(examState));
+  }, [examId, examState]);
 
   // Timer countdown
   useEffect(() => {
-    if (examState.isFinished || timeRemaining <= 0) return
+    if (examState.isFinished || timeRemaining <= 0) return;
 
     const timer = setInterval(() => {
-      setTimeRemaining(prev => {
+      setTimeRemaining((prev) => {
         if (prev <= 1) {
-          handleFinishExam()
-          return 0
+          handleFinishExam();
+          return 0;
         }
-        return prev - 1
-      })
-    }, 1000)
+        return prev - 1;
+      });
+    }, 1000);
 
-    return () => clearInterval(timer)
-  }, [examState.isFinished, timeRemaining])
+    return () => clearInterval(timer);
+  }, [examState.isFinished, timeRemaining]);
 
   // Start exam when component mounts
   useEffect(() => {
-    if (!examState.sessionId && !isLoading && user) {
-      handleStartExam()
+    if (!examState.sessionId && !isLoading && user?.id) {
+      handleStartExam();
     }
-  }, [examState.sessionId, isLoading, user])
+  }, [examState.sessionId, isLoading, user?.id]);
 
   // Update questions when data is loaded
   useEffect(() => {
     if (questions.data?.questions) {
-      setExamState(prev => ({
+      setExamState((prev) => ({
         ...prev,
         questions: questions.data.questions,
-      }))
+      }));
     }
-  }, [questions.data])
+  }, [questions.data]);
 
   const handleStartExam = async () => {
-    if (!user) return
+    if (!user) return;
 
     try {
       const result = await startExam.mutateAsync({
         examId,
-        studentId: 6  // Fallback ID
-      })
+        studentId: 6, // Fallback ID
+      });
 
       if (result.success) {
-        setExamState(prev => ({
+        setExamState((prev) => ({
           ...prev,
-          sessionId: result.exam_session_id,
-        }))
+          sessionId: result.session_id || result.exam_session_id,
+          questions: result.first_question ? [result.first_question] : [],
+          totalQuestions: result.total_questions || null,
+        }));
       }
     } catch (error) {
-      console.error('Start exam error:', error)
+      console.error("Start exam error:", error);
       toast({
         title: "Failed to Start Exam",
-        description: error instanceof Error ? error.message : 'Could not start exam',
+        description:
+          error instanceof Error ? error.message : "Could not start exam",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleSubmitAnswer = async (answer: string) => {
-    if (!examState.sessionId) return
+    if (!examState.sessionId) return;
 
     try {
-      const currentQuestion = examState.questions[examState.currentQuestionIndex]
+      const currentQuestion =
+        examState.questions[examState.currentQuestionIndex];
       const result = await submitAnswers.mutateAsync({
         examId,
         payload: {
           exam_session_id: examState.sessionId,
           question_id: Number(currentQuestion.id), // Convert to number
-          answer: answer
-        }
-      })
+          answer: answer,
+        },
+      });
 
-      // Update answers
-      setExamState(prev => ({
-        ...prev,
-        answers: {
-          ...prev.answers,
-          [examState.currentQuestionIndex]: answer
-        }
-      }))
+      // Always move to next question (no attempts)
+      if (result.next_question) {
+        setExamState((prev) => ({
+          ...prev,
+          questions: [result.next_question],
+          showHint: false,
+          hint: "",
+        }));
+      } else {
+        // No more questions, finish exam
+        handleFinishExam();
+      }
 
+      // Show feedback
       if (result.is_correct) {
         toast({
           title: "Correct!",
-          description: result.reasoning || "Well done!",
-        })
-        
-        // Move to next question
-        setExamState(prev => ({
-          ...prev,
-          currentQuestionIndex: prev.currentQuestionIndex + 1,
-          showHint: false,
-          hint: ''
-        }))
+          description: `Score: ${result.score}/${result.max_score}`,
+        });
       } else {
-        // Use backend's attempt tracking instead of manual increment
-        console.log('Backend response:', result)
-        console.log('attempts_used:', result.attempts_used)
-        console.log('attempts_remaining:', result.attempts_remaining)
-        console.log('should_advance:', result.should_advance)
-        
-        setExamState(prev => ({
-          ...prev,
-          attemptsUsed: {
-            ...prev.attemptsUsed,
-            [examState.currentQuestionIndex]: result.attempts_used || 0
-          },
-          showHint: true,
-          hint: result.hint || "Try again!"
-        }))
-
         toast({
           title: "Incorrect",
-          description: result.hint || "Try again!",
+          description: `Score: ${result.score}/${result.max_score}`,
           variant: "destructive",
-        })
-
-        // Move to next question if should advance (either correct or max attempts reached)
-        if (result.should_advance) {
-          console.log('Advancing to next question due to should_advance:', result.should_advance)
-          setExamState(prev => ({
-            ...prev,
-            currentQuestionIndex: prev.currentQuestionIndex + 1,
-            showHint: false,
-            hint: ''
-          }))
-        }
+        });
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to submit answer',
+        description:
+          error instanceof Error ? error.message : "Failed to submit answer",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleFinishExam = async () => {
-    if (!examState.sessionId) return
+    if (!examState.sessionId) return;
 
     try {
       const result = await finishExam.mutateAsync({
         examId,
-        examSessionId: examState.sessionId
-      })
+        examSessionId: examState.sessionId,
+      });
 
-      setExamState(prev => ({
+      setExamState((prev) => ({
         ...prev,
         isFinished: true,
         score: result.correct_answers || 0,
-        totalQuestions: result.total_questions_in_exam || 0
-      }))
+        totalQuestions: result.total_questions_in_exam || 0,
+      }));
 
       // Clear session storage
-      sessionStorage.removeItem(`exam_${examId}`)
-      
+      sessionStorage.removeItem(`exam_${examId}`);
+
       // Show completion after a delay
       setTimeout(() => {
-        onComplete()
-      }, 2000)
+        onComplete();
+      }, 2000);
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to finish exam',
+        description:
+          error instanceof Error ? error.message : "Failed to finish exam",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
-  const currentQuestion = examState.questions[examState.currentQuestionIndex]
-  const progress = examState.questions.length > 0 
-    ? ((examState.currentQuestionIndex + 1) / examState.questions.length) * 100 
-    : 0
+  const currentQuestion = examState.questions[examState.currentQuestionIndex];
+  const progress =
+    examState.totalQuestions && examState.totalQuestions > 0
+      ? ((examState.currentQuestionIndex + 1) / examState.totalQuestions) * 100
+      : 0;
 
   // Loading state
   if (isLoading && !examState.sessionId) {
@@ -256,7 +244,7 @@ export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerPro
           <p className="text-gray-600">Starting exam...</p>
         </div>
       </div>
-    )
+    );
   }
 
   // Error state
@@ -271,7 +259,7 @@ export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerPro
                 Exam Error
               </h3>
               <p className="text-gray-600 mb-4">
-                {error.message || 'Failed to load exam'}
+                {error.message || "Failed to load exam"}
               </p>
               <Button onClick={onBack}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
@@ -281,7 +269,7 @@ export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerPro
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 
   // Exam completed
@@ -296,16 +284,18 @@ export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerPro
                 Exam Completed!
               </h3>
               <p className="text-gray-600 mb-4">
-                {examState.score !== null ? `Score: ${examState.score} out of ${examState.totalQuestions || '?'} questions` : 'Thank you for completing the exam'}
+                {examState.score !== null
+                  ? `Score: ${examState.score} out of ${
+                      examState.totalQuestions || "?"
+                    } questions`
+                  : "Thank you for completing the exam"}
               </p>
-              <Button onClick={onComplete}>
-                Back to Dashboard
-              </Button>
+              <Button onClick={onComplete}>Back to Dashboard</Button>
             </div>
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 
   // No questions available
@@ -330,7 +320,7 @@ export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerPro
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 
   return (
@@ -343,18 +333,19 @@ export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerPro
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Dashboard
             </Button>
-            
+
             <div className="flex items-center gap-4">
-              <Button 
-                variant="destructive" 
+              <Button
+                variant="destructive"
                 onClick={handleFinishExam}
                 disabled={finishExam.isPending}
               >
-                {finishExam.isPending ? 'Finishing...' : 'Finish Exam'}
+                {finishExam.isPending ? "Finishing..." : "Finish Exam"}
               </Button>
-              
+
               <div className="text-sm text-gray-600">
-                Question {examState.currentQuestionIndex + 1} of {examState.questions.length}
+                Question {examState.currentQuestionIndex + 1} of{" "}
+                {examState.totalQuestions || 10}
               </div>
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Clock className="h-4 w-4" />
@@ -383,16 +374,22 @@ export default function ExamRunner({ examId, onComplete, onBack }: ExamRunnerPro
         <QuestionCard
           question={currentQuestion}
           questionNumber={examState.currentQuestionIndex + 1}
-          totalQuestions={examState.questions.length}
+          totalQuestions={examState.totalQuestions || 10}
           onSubmit={handleSubmitAnswer}
           isLoading={submitAnswers.isPending}
-          currentAnswer={examState.answers[examState.currentQuestionIndex] || ''}
-          attemptsUsed={examState.attemptsUsed[examState.currentQuestionIndex] || 0}
-          attemptsRemaining={3 - (examState.attemptsUsed[examState.currentQuestionIndex] || 0)}
+          currentAnswer={
+            examState.answers[examState.currentQuestionIndex] || ""
+          }
+          attemptsUsed={
+            examState.attemptsUsed[examState.currentQuestionIndex] || 0
+          }
+          attemptsRemaining={
+            3 - (examState.attemptsUsed[examState.currentQuestionIndex] || 0)
+          }
           showHint={examState.showHint}
           hint={examState.hint}
         />
       </main>
     </div>
-  )
+  );
 }
