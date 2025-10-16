@@ -32,6 +32,7 @@ export default function StudentDashboard() {
 
   const handleExamComplete = () => {
     setSelectedExamId(null)
+    refetch()
     // Clean up URL
     const url = new URL(window.location.href)
     url.searchParams.delete('examId')
@@ -105,15 +106,9 @@ export default function StudentDashboard() {
             <Card>
               <CardContent className="pt-6">
                 <div className="text-sm text-muted-foreground">
-                  {!discovery.exams ? (
-                    <span className="text-amber-600">
-                      No exam list endpoint detected. Showing shared exams or recent activity.
-                    </span>
-                  ) : (
-                    <span className="text-green-600">
-                      Connected to exam system
-                    </span>
-                  )}
+                {exams && exams.length > 0 
+                  ? `${exams.filter(e => !e.completed).length} available, ${exams.filter(e => e.completed).length} completed`
+                  : 'No exams available'}
                 </div>
               </CardContent>
             </Card>
@@ -178,12 +173,14 @@ export default function StudentDashboard() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-gray-900">
-                  Available Exams ({exams.length})
+                Available Exams ({exams.filter(e => !e.completed).length})
                 </h2>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {exams.map((exam) => (
+                {exams
+                .filter((exam) => !exam.completed)
+                .map((exam) => (
                   <ExamCard
                     key={exam.id}
                     exam={exam}

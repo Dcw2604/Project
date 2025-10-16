@@ -246,6 +246,7 @@ async getCurrentUser(): Promise<{
           id: exam.id,
           created_at: exam.created_at,
           total_questions: exam.total_questions || 10,
+          completed: exam.completed || false,
         }));
       }
     } catch (error) {

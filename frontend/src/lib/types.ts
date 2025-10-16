@@ -17,6 +17,7 @@ export type Exam = {
   created_at?: string;
   document_id?: string | number;
   total_questions?: number;
+  completed?: boolean;
 };
 
 export type Question = {
@@ -123,6 +124,7 @@ export type ExamCard = {
   id: string | number;
   created_at?: string;
   total_questions?: number;
+  completed?: boolean;
 };
 
 export type ExamRef = {

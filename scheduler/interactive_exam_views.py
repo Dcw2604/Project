@@ -3,7 +3,7 @@ import random
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
-
+from django.utils import timezone
 from .models import Exam, ExamSession, QuestionBank, StudentAnswer, User, QuestionAttempt
 from .adaptive_testing_engine import AdaptiveExamSession
 from .answer_evaluator import AnswerEvaluator
@@ -327,6 +327,9 @@ class FinishExamView(APIView):
             correct_answers = answers.filter(is_correct=True).count()
             calculate_topic_performance(exam_session, answers)
             create_student_analytics(exam_session)
+
+            exam_session.completed_at = timezone.now()
+            exam_session.save()
             
             return Response({
                 "success": True,
@@ -591,18 +594,33 @@ class GetExamsView(APIView):
     def get(self, request):
         try:
             exams = Exam.objects.all().order_by('-created_at')
+
+            # Get current user (student)
+            current_user = request.user if request.user.is_authenticated else None
             
             exam_list = []
             for exam in exams:
                 # Get question count for each exam
                 question_count = QuestionBank.objects.filter(exam=exam).count()
                 
+                # Check if this student has completed this exam
+                is_completed = False
+                if current_user:
+                    # Check if there's a completed ExamSession for this student and exam
+                    completed_session = ExamSession.objects.filter(
+                        exam=exam,
+                        student=current_user,
+                        completed_at__isnull=False  # Only sessions that were finished
+                    ).exists()
+                    is_completed = completed_session
+
                 exam_list.append({
                     "id": exam.id,
                     "title": f"Exam {exam.id}",  
                     "document_title": exam.document.title if exam.document else "Unknown Document",
                     "total_questions": question_count,
-                    "created_at": exam.created_at.isoformat()
+                    "created_at": exam.created_at.isoformat(),
+                    "completed": is_completed,
                 })
             
             return Response({
