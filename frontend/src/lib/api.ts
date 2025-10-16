@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+  import.meta.env.VITE_API_BASE_URL || "";
 
 class ApiClient {
   private baseURL: string;
@@ -107,10 +107,6 @@ class ApiClient {
       }
     );
 
-    console.log("Upload response:", response);
-    console.log("response.success:", response.success);
-    console.log("response.doc_id:", response.doc_id);
-    console.log("typeof response.doc_id:", typeof response.doc_id);
 
     // Store in session uploads for fallback
     if (response.success && response.doc_id) {

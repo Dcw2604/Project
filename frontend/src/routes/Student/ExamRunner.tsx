@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth";
 import { useExamRunner } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
@@ -25,13 +25,10 @@ interface ExamState {
   sessionId: number | null;
   currentQuestionIndex: number;
   answers: Record<number, string>;
-  attemptsUsed: Record<number, number>;
   questions: Question[];
   isFinished: boolean;
   score: number | null;
   totalQuestions: number | null; // Add this line
-  showHint: boolean;
-  hint: string;
 }
 
 export default function ExamRunner({
@@ -48,16 +45,14 @@ export default function ExamRunner({
     sessionId: null,
     currentQuestionIndex: 0,
     answers: {},
-    attemptsUsed: {},
     questions: [],
     isFinished: false,
     score: null,
     totalQuestions: null,
-    showHint: false,
-    hint: "",
   });
 
   const [timeRemaining, setTimeRemaining] = useState(30 * 60); // 30 minutes in seconds
+  const hasStartedRef = useRef(false);  
 
   // Load saved state from sessionStorage
   useEffect(() => {
@@ -94,20 +89,27 @@ export default function ExamRunner({
     return () => clearInterval(timer);
   }, [examState.isFinished, timeRemaining]);
 
-  // Start exam when component mounts
+// Start exam when component mounts
   useEffect(() => {
-    if (!examState.sessionId && !isLoading && user?.id) {
+    if (!examState.sessionId && !isLoading && user?.id && !hasStartedRef.current) {
+      hasStartedRef.current = true;
       handleStartExam();
     }
   }, [examState.sessionId, isLoading, user?.id]);
 
   // Update questions when data is loaded
   useEffect(() => {
+
+    console.log('=== QUESTIONS LOADED ===');
+    console.log('questions.data:', questions.data);
+    console.log('questions.data?.questions length:', questions.data?.questions?.length);
+
     if (questions.data?.questions) {
       setExamState((prev) => ({
         ...prev,
         questions: questions.data.questions,
       }));
+      console.log('Updated examState.questions to:', questions.data.questions.length, 'questions');
     }
   }, [questions.data]);
 
@@ -120,16 +122,25 @@ export default function ExamRunner({
         studentId: 6, // Fallback ID
       });
 
+      console.log('=== START EXAM RESPONSE ===');
+      console.log('Full result:', result);
+      console.log('result.session_id:', result.session_id);
+      console.log('result.success:', result.success);
+
       if (result.success) {
         setExamState((prev) => ({
           ...prev,
-          sessionId: result.session_id || result.exam_session_id,
-          questions: result.first_question ? [result.first_question] : [],
+          sessionId: result.session_id,
+          //estions: result.first_question ? [result.first_question] : [],
           totalQuestions: result.total_questions || null,
         }));
+
+        console.log('After setState - sessionId should be:', result.session_id);
+
       }
     } catch (error) {
       console.error("Start exam error:", error);
+      hasStartedRef.current = false;  // ← ADD THIS LINE to allow retry on error
       toast({
         title: "Failed to Start Exam",
         description:
@@ -140,6 +151,11 @@ export default function ExamRunner({
   };
 
   const handleSubmitAnswer = async (answer: string) => {
+    console.log('=== SUBMIT DEBUG ===');
+    console.log('sessionId:', examState.sessionId);
+    console.log('questions.length:', examState.questions.length);
+    console.log('currentQuestionIndex:', examState.currentQuestionIndex);
+    console.log('answer:', answer);
     if (!examState.sessionId) return;
 
     try {
@@ -154,16 +170,18 @@ export default function ExamRunner({
         },
       });
 
-      // Always move to next question (no attempts)
-      if (result.next_question) {
+      // Always move to next question (no attempts) - use local question array
+      const nextIndex = examState.currentQuestionIndex + 1;
+      const maxQuestions = examState.totalQuestions || 10;  // Use totalQuestions from backend
+
+      if (nextIndex < maxQuestions && nextIndex < examState.questions.length) {
+        // Move to next question in local array
         setExamState((prev) => ({
           ...prev,
-          questions: [result.next_question],
-          showHint: false,
-          hint: "",
+          currentQuestionIndex: nextIndex,
         }));
       } else {
-        // No more questions, finish exam
+        // No more questions in local array, finish exam
         handleFinishExam();
       }
 
@@ -380,14 +398,6 @@ export default function ExamRunner({
           currentAnswer={
             examState.answers[examState.currentQuestionIndex] || ""
           }
-          attemptsUsed={
-            examState.attemptsUsed[examState.currentQuestionIndex] || 0
-          }
-          attemptsRemaining={
-            3 - (examState.attemptsUsed[examState.currentQuestionIndex] || 0)
-          }
-          showHint={examState.showHint}
-          hint={examState.hint}
         />
       </main>
     </div>

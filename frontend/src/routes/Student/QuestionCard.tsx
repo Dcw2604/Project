@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { CheckCircle, XCircle, Lightbulb } from 'lucide-react'
+import { CheckCircle, XCircle } from 'lucide-react'
 import type { Question } from '@/lib/types'
 
 interface QuestionCardProps {
@@ -14,10 +14,6 @@ interface QuestionCardProps {
   onSubmit: (answer: string) => void
   isLoading: boolean
   currentAnswer: string
-  attemptsUsed?: number
-  attemptsRemaining?: number
-  showHint?: boolean
-  hint?: string
 }
 
 export default function QuestionCard({
@@ -27,10 +23,6 @@ export default function QuestionCard({
   onSubmit,
   isLoading,
   currentAnswer,
-  attemptsUsed = 0,
-  attemptsRemaining = 3,
-  showHint = false,
-  hint
 }: QuestionCardProps) {
   const [answer, setAnswer] = useState(currentAnswer)
 
@@ -66,12 +58,6 @@ export default function QuestionCard({
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            {attemptsUsed > 0 && (
-              <Badge variant="outline" className="text-orange-600">
-                Attempts: {attemptsUsed}/3
-                {attemptsRemaining > 0 && ` (${attemptsRemaining} remaining)`}
-              </Badge>
-            )}
             {question.type && (
               <Badge variant="secondary">
                 {question.type.toUpperCase()}
@@ -89,18 +75,6 @@ export default function QuestionCard({
             </p>
           </div>
 
-          {/* Hint Display */}
-          {showHint && hint && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
-              <div className="flex items-start gap-2">
-                <Lightbulb className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-blue-900 mb-1">Hint:</p>
-                  <p className="text-sm text-blue-800">{hint}</p>
-                </div>
-              </div>
-            </div>
-          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {isMCQ ? (
