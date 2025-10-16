@@ -60,7 +60,7 @@ export type CreateExamResponse = {
 
 export type StartExamResponse = {
   success: boolean;
-  exam_session_id: number;
+  session_id: number;
   first_question?: Question;
   total_questions?: number;
   message?: string;
@@ -83,11 +83,8 @@ export type SubmitAnswersResponse = {
   success: boolean;
   is_correct: boolean;
   score?: number;
+  max_score?: number;
   reasoning?: string;
-  hint?: string;
-  attempts_used?: number;
-  attempts_remaining?: number;
-  should_advance?: boolean;
   next_question?: Question;
   has_more_questions?: boolean;
 };

@@ -52,10 +52,18 @@ class GeminiFlashProvider:
             raise RuntimeError("google.generativeai not available.")
 
         prompt = (
-            "You are a precise math teacher who writes JSON.\n\n"
-            f"From the following math content, generate 5 multiple-choice questions at {difficulty} level (Level {level}).\n"
-            "Return STRICT JSON only. Schema:\n"
-            "{\n  \"questions\": [ { ... } ] }\n\n"
+            "You are a precise teacher who writes strict JSON.\n\n"
+            f"From the following content, generate 5 open-ended questions at {difficulty} level (Level {level}).\n"
+            "Return STRICT JSON only in this exact schema:\n"
+            "{\n"
+            '  "questions": [\n'
+            '    {\n'
+            '      "question_text": "Your question here?",\n'
+            '      "correct_answer": "Canonical answer text",\n'
+            '      "explanation": "Optional explanation"\n'
+            '    }\n'
+            '  ]\n'
+            "}\n\n"
             "Content:\n" + content[:3000]
         )
 
@@ -153,5 +161,8 @@ class AlgorithmDocumentProcessor:
         return text.strip()
 
     def validate_question_data(self, q: Dict[str, Any]) -> bool:
-        required = ["question_text", "option_a", "option_b", "option_c", "option_d", "correct_answer"]
-        return all((k in q and isinstance(q[k], str) and q[k].strip()) for k in required)
+        if not isinstance(q, dict):
+            return False
+        if "question_text" not in q or "correct_answer" not in q:
+            return False
+        qt = str(q["question

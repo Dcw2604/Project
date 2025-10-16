@@ -26,10 +26,6 @@ export default function QuestionCard({
 }: QuestionCardProps) {
   const [answer, setAnswer] = useState(currentAnswer)
 
-  //console.log('QuestionCard - question:', question)
-  //console.log('QuestionCard - question.question_text:', question.question_text)
-  //console.log('QuestionCard - question.text:', question.text)
-
   useEffect(() => {
     setAnswer(currentAnswer)
   }, [currentAnswer])
