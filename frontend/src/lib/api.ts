@@ -18,6 +18,14 @@ import type {
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "";
 
+// Helper function to get CSRF token from cookie
+function getCookie(name: string): string | null {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+  return null;
+}
+
 class ApiClient {
   private baseURL: string;
 
@@ -34,6 +42,11 @@ class ApiClient {
     const defaultHeaders: HeadersInit = {
       "Content-Type": "application/json",
     };
+
+    const csrfToken = getCookie('csrftoken');
+    if (csrfToken && options.method && options.method !== 'GET') {
+      defaultHeaders['X-CSRFToken'] = csrfToken;
+    }
 
     // Don't set Content-Type for FormData (multipart)
     if (options.body instanceof FormData) {
@@ -80,6 +93,62 @@ class ApiClient {
       throw new ApiError("Invalid JSON response", response.status);
     }
   }
+
+  // Authentication methods
+async login(username: string, password: string): Promise<{
+  success: boolean;
+  user?: { id: number; username: string; name: string; role: string };
+  error?: string;
+}> {
+  return this.fetchJson("/api/auth/login/", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+async getCSRFToken() {
+  const response = await fetch(`${this.baseURL}/api/csrf/`, {
+    credentials: 'include'
+  });
+  const data = await response.json();
+  return data.csrfToken;
+}
+
+async register(
+  username: string,
+  password: string,
+  role: string,
+  firstName?: string,
+  lastName?: string
+): Promise<{
+  success: boolean;
+  user?: { id: number; username: string; name: string; role: string };
+  error?: string;
+}> {
+  return this.fetchJson("/api/auth/register/", {
+    method: "POST",
+    body: JSON.stringify({
+      username,
+      password,
+      role,
+      first_name: firstName,
+      last_name: lastName,
+    }),
+  });
+}
+
+async logout(): Promise<{ success: boolean }> {
+  return this.fetchJson("/api/auth/logout/", {
+    method: "POST",
+  });
+}
+
+async getCurrentUser(): Promise<{
+  success: boolean;
+  user?: { id: number; username: string; name: string; role: string };
+}> {
+  return this.fetchJson("/api/auth/me/");
+}
 
   // Health check
   async getHealth(): Promise<HealthResponse> {
@@ -273,5 +342,5 @@ class ApiError extends Error {
   }
 }
 
-export const api = new ApiClient(API_BASE_URL);
+export const apiClient = new ApiClient(API_BASE_URL);
 export { ApiError };

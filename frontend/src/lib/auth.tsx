@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
+import { apiClient } from './api'
 
 export type UserRole = 'student' | 'teacher'
 
@@ -11,11 +12,10 @@ export interface User {
 
 interface AuthContextType {
   user: User | null
-  login: (user: User) => void
-  logout: () => void
+  login: (username: string, password: string) => Promise<{success: boolean; error?: string}>
+  logout: () => Promise<void>
   isLoading: boolean
 }
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function useAuth() {
@@ -35,25 +35,55 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Load user from localStorage on mount
-    const savedAuth = localStorage.getItem('auth')
-    if (savedAuth) {
-      try {
-        const parsedUser = JSON.parse(savedAuth)
-        setUser(parsedUser)
-      } catch {
-        localStorage.removeItem('auth')
+    const checkAuth = async () => {
+      const savedAuth = localStorage.getItem('auth')
+      if (savedAuth) {
+        try {
+          // Verify session with backend
+          const result = await apiClient.getCurrentUser()
+          if (result.success && result.user) {
+            const user: User = {
+              id: result.user.id,
+              name: result.user.name,
+              role: result.user.role as UserRole
+            }
+            setUser(user)
+            localStorage.setItem('auth', JSON.stringify(user))
+          } else {
+            // Session expired
+            localStorage.removeItem('auth')
+          }
+        } catch {
+          localStorage.removeItem('auth')
+        }
       }
+      setIsLoading(false)
     }
-    setIsLoading(false)
+    
+    checkAuth()
   }, [])
 
-  const login = (userData: User) => {
-    setUser(userData)
-    localStorage.setItem('auth', JSON.stringify(userData))
+  const login = async (username: string, password: string) => {
+    const result = await apiClient.login(username, password)
+    if (result.success && result.user) {
+      const user: User = {
+        id: result.user.id,
+        name: result.user.name,
+        role: result.user.role as UserRole
+      }
+      setUser(user)
+      localStorage.setItem('auth', JSON.stringify(user))
+      return { success: true }
+    }
+    return { success: false, error: 'Invalid credentials' }
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await apiClient.logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
     setUser(null)
     localStorage.removeItem('auth')
   }
@@ -72,6 +102,7 @@ interface ProtectedRouteProps {
   children: ReactNode
   role: UserRole
 }
+
 
 export function ProtectedRoute({ children, role }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth()

@@ -1,16 +1,15 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth, UserRole } from '@/lib/auth'
+import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 
 export default function SignIn() {
-  const [name, setName] = useState('')
-  const [role, setRole] = useState<UserRole>('student')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
@@ -19,10 +18,10 @@ export default function SignIn() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!name.trim()) {
+    if (!username.trim() || !password.trim()) {
       toast({
         title: "Error",
-        description: "Please enter your name",
+        description: "Please enter username and password",
         variant: "destructive",
       })
       return
@@ -31,24 +30,24 @@ export default function SignIn() {
     setIsLoading(true)
     
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500))
+      const result = await login(username.trim(), password.trim())
       
-      // Generate a simple ID for demo purposes
-      const id = Math.floor(Math.random() * 1000) + 1
-      
-      login({
-        role,
-        name: name.trim(),
-        id,
-      })
-      
-      toast({
-        title: "Success",
-        description: `Welcome, ${name}! Signed in as ${role}.`,
-      })
-      
-      navigate(`/${role}`)
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: `Welcome back!`,
+        })
+        
+        // Navigate based on user role (will be set from backend response)
+        // The auth context will have the user with the correct role
+        window.location.href = '/' // Let the router redirect based on role
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Invalid username or password",
+          variant: "destructive",
+        })
+      }
     } catch (error) {
       toast({
         title: "Error",
@@ -66,34 +65,35 @@ export default function SignIn() {
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Sign In</CardTitle>
           <CardDescription className="text-center">
-            Choose your role to access the exam system
+            Enter your credentials to access the exam system
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="username">Username</Label>
               <Input
-                id="name"
+                id="username"
                 type="text"
-                placeholder="Enter your name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                placeholder="Enter your username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
+                autoComplete="username"
               />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="role">Role</Label>
-              <Select value={role} onValueChange={(value: UserRole) => setRole(value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select your role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="student">Student</SelectItem>
-                  <SelectItem value="teacher">Teacher</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
             </div>
             
             <Button 
@@ -103,6 +103,10 @@ export default function SignIn() {
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
+            
+            <p className="text-sm text-center text-gray-600 mt-4">
+              Don't have an account? <a href="/register" className="text-blue-600 hover:underline">Register</a>
+            </p>
           </form>
         </CardContent>
       </Card>

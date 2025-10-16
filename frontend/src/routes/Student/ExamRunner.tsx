@@ -13,7 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Clock, CheckCircle, XCircle, Flag } from "lucide-react";
 import QuestionCard from "./QuestionCard";
-import type { Question } from "@/lib/types";
+import type { Question, SubmitAnswersResponse, StartExamResponse, FinishExamResponse } from "@/lib/types";
 
 interface ExamRunnerProps {
   examId: string | number;
@@ -119,8 +119,8 @@ export default function ExamRunner({
     try {
       const result = await startExam.mutateAsync({
         examId,
-        studentId: 6, // Fallback ID
-      });
+        studentId: user.id || 0, // Fallback ID
+      }) as StartExamResponse; // ← Add this type assertion
 
       console.log('=== START EXAM RESPONSE ===');
       console.log('Full result:', result);
@@ -131,7 +131,6 @@ export default function ExamRunner({
         setExamState((prev) => ({
           ...prev,
           sessionId: result.session_id,
-          //estions: result.first_question ? [result.first_question] : [],
           totalQuestions: result.total_questions || null,
         }));
 
@@ -168,7 +167,7 @@ export default function ExamRunner({
           question_id: Number(currentQuestion.id), // Convert to number
           answer: answer,
         },
-      });
+      }) as SubmitAnswersResponse; // ← Add this type assertion
 
       // Always move to next question (no attempts) - use local question array
       const nextIndex = examState.currentQuestionIndex + 1;
@@ -215,7 +214,7 @@ export default function ExamRunner({
       const result = await finishExam.mutateAsync({
         examId,
         examSessionId: examState.sessionId,
-      });
+      }) as FinishExamResponse;
 
       setExamState((prev) => ({
         ...prev,

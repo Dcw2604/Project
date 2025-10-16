@@ -3,7 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "./api";
+import { apiClient } from "./api";
 import type {
   DocumentOption,
   ExamCard,
@@ -24,7 +24,7 @@ export const queryKeys = {
 export function useHealth() {
   return useQuery({
     queryKey: queryKeys.health,
-    queryFn: () => api.getHealth(),
+    queryFn: () => apiClient.getHealth(),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
@@ -33,7 +33,7 @@ export function useHealth() {
 export function useDocuments() {
   return useQuery({
     queryKey: queryKeys.documents,
-    queryFn: () => api.listDocuments(),
+    queryFn: () => apiClient.listDocuments(),
     staleTime: 2 * 60 * 1000, // 2 minutes
   });
 }
@@ -48,7 +48,7 @@ export function useUploadDocument() {
     }: {
       file: File;
       gradingInstructions?: string;
-    }) => api.uploadDocument(file, gradingInstructions),
+    }) => apiClient.uploadDocument(file, gradingInstructions),
     onSuccess: () => {
       // Invalidate documents query to refresh the list
       queryClient.invalidateQueries({ queryKey: queryKeys.documents });
@@ -60,7 +60,7 @@ export function useUploadDocument() {
 export function useStudentExams() {
   return useQuery({
     queryKey: queryKeys.exams,
-    queryFn: () => api.listExamsForStudent(),
+    queryFn: () => apiClient.listExamsForStudent(),
     staleTime: 1 * 60 * 1000, // 1 minute
   });
 }
@@ -69,7 +69,7 @@ export function useCreateExam() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: CreateExamRequest) => api.createExam(payload),
+    mutationFn: (payload: CreateExamRequest) => apiClient.createExam(payload),
     onSuccess: () => {
       // Invalidate exams query to refresh the list
       queryClient.invalidateQueries({ queryKey: queryKeys.exams });
@@ -85,14 +85,14 @@ export function useStartExam() {
     }: {
       examId: string | number;
       studentId: number;
-    }) => api.startExam(examId, studentId),
+    }) => apiClient.startExam(examId, studentId),
   });
 }
 
 export function useQuestions(examId: string | number) {
   return useQuery({
     queryKey: queryKeys.questions(examId),
-    queryFn: () => api.getQuestions(examId),
+    queryFn: () => apiClient.getQuestions(examId),
     enabled: !!examId,
   });
 }
@@ -105,7 +105,7 @@ export function useSubmitAnswers() {
     }: {
       examId: string | number;
       payload: SubmitAnswersRequest;
-    }) => api.submitAnswers(examId, payload),
+    }) => apiClient.submitAnswers(examId, payload),
   });
 }
 
@@ -117,7 +117,7 @@ export function useFinishExam() {
     }: {
       examId: string | number;
       examSessionId: number;
-    }) => api.finishExam(examId, examSessionId),
+    }) => apiClient.finishExam(examId, examSessionId),
   });
 }
 
@@ -125,7 +125,7 @@ export function useFinishExam() {
 export function useDiscovery() {
   return useQuery({
     queryKey: queryKeys.discovery,
-    queryFn: () => api.discoverEndpoints(),
+    queryFn: () => apiClient.discoverEndpoints(),
     staleTime: 10 * 60 * 1000, // 10 minutes
   });
 }
