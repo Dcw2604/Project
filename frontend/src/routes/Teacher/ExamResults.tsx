@@ -10,11 +10,29 @@ import { useToast } from '@/hooks/use-toast'
 interface ExamResult {
   student_name: string
   student_id: number
+  exam_session_id: number
   score: number
   total_questions: number
   questions_answered: number
   completed_at: string | null
   started_at: string
+}
+
+interface StudentAnalytics {
+  student_name: string
+  exam_session_id: number
+  overall_percentage: number
+  total_questions: number
+  total_correct: number
+  topic_breakdown: {
+    topic_name: string
+    percentage: number
+    questions_answered: number
+    correct_answers: number
+    performance_level: string
+  }[]
+  strengths: string[]
+  weaknesses: string[]
 }
 
 interface Exam {
@@ -31,6 +49,9 @@ export default function ExamResults() {
   const [results, setResults] = useState<ExamResult[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingExams, setIsLoadingExams] = useState(true)
+  const [expandedStudent, setExpandedStudent] = useState<number | null>(null)
+  const [studentAnalytics, setStudentAnalytics] = useState<StudentAnalytics | null>(null)
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false)
   const { toast } = useToast()
 
   // Fetch exams on component mount
@@ -64,6 +85,35 @@ export default function ExamResults() {
     }
   }
 
+
+  const fetchStudentAnalytics = async (studentId: number, examSessionId: number) => {
+    setIsLoadingAnalytics(true)
+    try {
+      const response = await fetch(`/api/api/analytics/student/${studentId}/exam/${examSessionId}/`)
+      const data = await response.json()
+      
+      setStudentAnalytics(data)
+      setExpandedStudent(studentId)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch student analytics",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoadingAnalytics(false)
+    }
+  }
+  
+  const handleToggleStudent = (studentId: number, examSessionId: number) => {
+    if (expandedStudent === studentId) {
+      setExpandedStudent(null)
+      setStudentAnalytics(null)
+    } else {
+      fetchStudentAnalytics(studentId, examSessionId)
+    }
+  }
+  
   const fetchResults = async () => {
     if (!selectedExamId) {
       toast({
@@ -73,7 +123,7 @@ export default function ExamResults() {
       })
       return
     }
-
+  
     setIsLoading(true)
     try {
       const response = await fetch(`http://127.0.0.1:8000/api/exams/${selectedExamId}/results/`)
@@ -187,6 +237,216 @@ export default function ExamResults() {
             </div>
           )}
 
+          {/* Results Table */}
+          {results.length > 0 ? (
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium">Student Results</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse border border-gray-200">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border border-gray-200 px-4 py-2 text-left">Student</th>
+                      <th className="border border-gray-200 px-4 py-2 text-left">Score</th>
+                      <th className="border border-gray-200 px-4 py-2 text-left">Questions Answered</th>
+                      <th className="border border-gray-200 px-4 py-2 text-left">Time Taken</th>
+                      <th className="border border-gray-200 px-4 py-2 text-left">Status</th>
+                      <th className="border border-gray-200 px-4 py-2 text-left">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.map((result, index) => (
+                      <>
+                        {/* Main Row */}
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="border border-gray-200 px-4 py-2">
+                            <div>
+                              <div className="font-medium">{result.student_name}</div>
+                              <div className="text-sm text-gray-500">ID: {result.student_id}</div>
+                            </div>
+                          </td>
+                          <td className="border border-gray-200 px-4 py-2">
+                            <Badge variant={result.score >= result.total_questions * 0.7 ? "default" : "destructive"}>
+                              {result.score}/{result.total_questions}
+                            </Badge>
+                            <div className="text-sm text-gray-500 mt-1">
+                              {Math.round((result.score / result.total_questions) * 100)}%
+                            </div>
+                          </td>
+                          <td className="border border-gray-200 px-4 py-2">
+                            {result.questions_answered}/{result.total_questions}
+                          </td>
+                          <td className="border border-gray-200 px-4 py-2">
+                            {result.completed_at && result.started_at ? (
+                              <span className="text-sm">
+                                {Math.round((new Date(result.completed_at).getTime() - new Date(result.started_at).getTime()) / 60000)} min
+                              </span>
+                            ) : (
+                              <span className="text-sm text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="border border-gray-200 px-4 py-2">
+                            {result.completed_at ? (
+                              <Badge variant="default">Completed</Badge>
+                            ) : (
+                              <Badge variant="secondary">In Progress</Badge>
+                            )}
+                          </td>
+                          <td className="border border-gray-200 px-4 py-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleToggleStudent(result.student_id, result.exam_session_id)}
+                              disabled={isLoadingAnalytics && expandedStudent !== result.student_id}
+                            >
+                              {expandedStudent === result.student_id ? 'Hide Details' : 'View Details'}
+                            </Button>
+                          </td>
+                        </tr>
+
+                        {/* Expanded Analytics Row */}
+                        {expandedStudent === result.student_id && studentAnalytics && (
+                          <tr>
+                            <td colSpan={6} className="border border-gray-200 bg-gray-50 p-6">
+                              {isLoadingAnalytics ? (
+                                <div className="text-center py-4">Loading analytics...</div>
+                              ) : (
+                                <div className="space-y-6">
+                                  {/* Overall Performance */}
+                                  <div>
+                                    <h4 className="font-semibold mb-2">Overall Performance</h4>
+                                    <div className="grid grid-cols-3 gap-4">
+                                      <div className="p-3 bg-white rounded border">
+                                        <div className="text-sm text-gray-600">Correct Answers</div>
+                                        <div className="text-lg font-bold">{studentAnalytics.total_correct}/{studentAnalytics.total_questions}</div>
+                                      </div>
+                                      <div className="p-3 bg-white rounded border">
+                                        <div className="text-sm text-gray-600">Overall Score</div>
+                                        <div className="text-lg font-bold">{Math.round(studentAnalytics.overall_percentage)}%</div>
+                                      </div>
+                                      <div className="p-3 bg-white rounded border">
+                                        <div className="text-sm text-gray-600">Performance Level</div>
+                                        <div className="text-lg font-bold">
+                                          {studentAnalytics.overall_percentage >= 80 ? '🌟 Excellent' : 
+                                          studentAnalytics.overall_percentage >= 60 ? '✅ Good' : 
+                                          studentAnalytics.overall_percentage >= 40 ? '⚠️ Fair' : '❌ Needs Help'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Strengths */}
+                                  {studentAnalytics.strengths && studentAnalytics.strengths.length > 0 && (
+                                    <div>
+                                      <h4 className="font-semibold mb-2 text-green-700">💪 Strengths</h4>
+                                      <div className="flex flex-wrap gap-2">
+                                        {studentAnalytics.strengths.map((topic, i) => (
+                                          <Badge key={i} variant="default" className="bg-green-100 text-green-800 border-green-300">
+                                            {topic}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Weaknesses */}
+                                  {studentAnalytics.weaknesses && studentAnalytics.weaknesses.length > 0 && (
+                                    <div>
+                                      <h4 className="font-semibold mb-2 text-red-700">📚 Areas for Improvement</h4>
+                                      <div className="flex flex-wrap gap-2">
+                                        {studentAnalytics.weaknesses.map((topic, i) => (
+                                          <Badge key={i} variant="destructive" className="bg-red-100 text-red-800 border-red-300">
+                                            {topic}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Topic Breakdown */}
+                                  <div>
+                                    <h4 className="font-semibold mb-3">📊 Performance by Topic</h4>
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-sm border border-gray-200">
+                                        <thead>
+                                          <tr className="bg-white">
+                                            <th className="border border-gray-200 px-3 py-2 text-left">Topic</th>
+                                            <th className="border border-gray-200 px-3 py-2 text-center">Score</th>
+                                            <th className="border border-gray-200 px-3 py-2 text-center">Percentage</th>
+                                            <th className="border border-gray-200 px-3 py-2 text-left">Level</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {studentAnalytics.topic_breakdown.map((topic, i) => (
+                                            <tr key={i} className="hover:bg-white">
+                                              <td className="border border-gray-200 px-3 py-2">{topic.topic_name}</td>
+                                              <td className="border border-gray-200 px-3 py-2 text-center">
+                                                {topic.correct_answers}/{topic.questions_answered}
+                                              </td>
+                                              <td className="border border-gray-200 px-3 py-2 text-center">
+                                                <span className={
+                                                  topic.percentage >= 80 ? 'text-green-600 font-semibold' :
+                                                  topic.percentage >= 60 ? 'text-blue-600' :
+                                                  topic.percentage >= 40 ? 'text-yellow-600' :
+                                                  'text-red-600 font-semibold'
+                                                }>
+                                                  {Math.round(topic.percentage)}%
+                                                </span>
+                                              </td>
+                                              <td className="border border-gray-200 px-3 py-2">
+                                                <Badge 
+                                                  variant={
+                                                    topic.performance_level === "Excellent" ? "default" :
+                                                    topic.performance_level === "Good" ? "secondary" :
+                                                    "destructive"
+                                                  }
+                                                  className="text-xs"
+                                                >
+                                                  {topic.performance_level}
+                                                </Badge>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+          ) : selectedExamId ? (
+            <div className="text-center py-8">
+              <div className="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                <BarChart3 className="h-6 w-6 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                No Results Found
+              </h3>
+              <p className="text-gray-500">
+                No students have taken this exam yet.
+              </p>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <div className="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                <BarChart3 className="h-6 w-6 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Select an Exam
+              </h3>
+              <p className="text-gray-500">
+                Choose an exam from the dropdown to view student results.
+              </p>
+            </div>
+          )}
           {/* Statistics */}
           {results.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -213,76 +473,6 @@ export default function ExamResults() {
                 </div>
                 <div className="text-2xl font-bold">{stats.avgScore}</div>
               </div>
-            </div>
-          )}
-
-          {/* Results Table */}
-          {results.length > 0 ? (
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Student Results</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-gray-200">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="border border-gray-200 px-4 py-2 text-left">Student</th>
-                      <th className="border border-gray-200 px-4 py-2 text-left">Score</th>
-                      <th className="border border-gray-200 px-4 py-2 text-left">Questions Answered</th>
-                      <th className="border border-gray-200 px-4 py-2 text-left">Completion Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.map((result, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="border border-gray-200 px-4 py-2">
-                          <div>
-                            <div className="font-medium">{result.student_name}</div>
-                            <div className="text-sm text-gray-500">ID: {result.student_id}</div>
-                          </div>
-                        </td>
-                        <td className="border border-gray-200 px-4 py-2">
-                          <Badge variant={result.score >= result.total_questions * 0.7 ? "default" : "destructive"}>
-                            {result.score}/{result.total_questions}
-                          </Badge>
-                        </td>
-                        <td className="border border-gray-200 px-4 py-2">
-                          {result.questions_answered}/{result.total_questions}
-                        </td>
-                        <td className="border border-gray-200 px-4 py-2">
-                          {result.completed_at ? (
-                            <Badge variant="default">Completed</Badge>
-                          ) : (
-                            <Badge variant="secondary">In Progress</Badge>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : selectedExamId ? (
-            <div className="text-center py-8">
-              <div className="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                <BarChart3 className="h-6 w-6 text-gray-400" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                No Results Found
-              </h3>
-              <p className="text-gray-500">
-                No students have taken this exam yet.
-              </p>
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <div className="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                <BarChart3 className="h-6 w-6 text-gray-400" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                Select an Exam
-              </h3>
-              <p className="text-gray-500">
-                Choose an exam from the dropdown to view student results.
-              </p>
             </div>
           )}
         </div>

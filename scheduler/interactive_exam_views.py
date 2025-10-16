@@ -678,6 +678,7 @@ class GetExamResultsView(APIView):
                 results.append({
                     "student_name": session.student.username,
                     "student_id": session.student.id,
+                    "exam_session_id": session.id,
                     "score": correct_answers,  # Count of correct questions
                     "total_questions": total_questions_in_exam,
                     "questions_answered": total_questions_answered,
