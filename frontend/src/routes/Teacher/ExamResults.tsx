@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -130,7 +130,34 @@ export default function ExamResults() {
       const data = await response.json()
       
       if (data.success) {
-        setResults(data.results)
+        // Store the results with placeholder data
+        const resultsWithAnalytics = await Promise.all(
+          data.results.map(async (result: ExamResult) => {
+            // Fetch analytics for each student
+            try {
+              const analyticsResponse = await fetch(`/api/api/analytics/student/${result.student_id}/exam/${result.exam_session_id}/`)
+              if (analyticsResponse.ok) {
+                const analytics = await analyticsResponse.json()
+                // Merge analytics data into result
+                return {
+                  ...result,
+                  score: analytics.total_correct,
+                  total_questions: analytics.total_questions,
+                  questions_answered: analytics.total_questions,
+                  overall_percentage: analytics.overall_percentage,
+                  started_at: result.started_at,
+                  completed_at: result.completed_at,
+                }
+              }
+            } catch (err) {
+              console.log('Analytics not available for student', result.student_id)
+            }
+            // Return original if analytics fail
+            return result
+          })
+        )
+        
+        setResults(resultsWithAnalytics)
         toast({
           title: "Success",
           description: `Found ${data.results.length} student results`,
@@ -163,11 +190,14 @@ export default function ExamResults() {
       if (result.completed_at) {
         const start = new Date(result.started_at)
         const end = new Date(result.completed_at)
-        return sum + (end.getTime() - start.getTime()) / 1000 / 60 // minutes
+        return sum + (end.getTime() - start.getTime()) / 1000 // seconds
       }
       return sum
     }, 0)
-    const avgTime = Math.round((totalTime / results.length) * 10) / 10
+    const avgTimeSeconds = totalTime / results.filter(r => r.completed_at && r.started_at).length
+    const avgTime = avgTimeSeconds >= 60 
+      ? `${Math.round(avgTimeSeconds / 60)} min` 
+      : `${Math.round(avgTimeSeconds)}s`
     
     return {
       avgScore,
@@ -255,7 +285,7 @@ export default function ExamResults() {
                   </thead>
                   <tbody>
                     {results.map((result, index) => (
-                      <>
+                      <React.Fragment key={`student-${result.student_id}-${result.exam_session_id}`}>
                         {/* Main Row */}
                         <tr key={index} className="hover:bg-gray-50">
                           <td className="border border-gray-200 px-4 py-2">
@@ -277,9 +307,18 @@ export default function ExamResults() {
                           </td>
                           <td className="border border-gray-200 px-4 py-2">
                             {result.completed_at && result.started_at ? (
-                              <span className="text-sm">
-                                {Math.round((new Date(result.completed_at).getTime() - new Date(result.started_at).getTime()) / 60000)} min
-                              </span>
+                              (() => {
+                                const milliseconds = new Date(result.completed_at).getTime() - new Date(result.started_at).getTime()
+                                const totalSeconds = Math.round(milliseconds / 1000)
+                                const minutes = Math.floor(totalSeconds / 60)
+                                const seconds = totalSeconds % 60
+                                
+                                if (minutes > 0) {
+                                  return <span className="text-sm">{minutes} min {seconds}s</span>
+                                } else {
+                                  return <span className="text-sm">{seconds}s</span>
+                                }
+                              })()
                             ) : (
                               <span className="text-sm text-gray-400">-</span>
                             )}
@@ -415,7 +454,7 @@ export default function ExamResults() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
