@@ -10,7 +10,6 @@ import DocumentsDropdown from '@/components/DocumentsDropdown'
 
 export default function CreateExam() {
   const [formData, setFormData] = useState({
-    title: '',
     documentId: ''
   })
   
@@ -24,7 +23,7 @@ export default function CreateExam() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!formData.title || !formData.documentId) {
+    if (!formData.documentId) {
       toast({
         title: "Validation Error",
         description: "Please fill in all required fields",
@@ -35,7 +34,6 @@ export default function CreateExam() {
 
     try {
       const result = await createExamMutation.mutateAsync({
-        title: formData.title,
         document_id: formData.documentId,
         levels: [3, 4, 5], // Always use all levels
         questions_per_level: 10 // Always create 10 questions total
@@ -44,12 +42,11 @@ export default function CreateExam() {
       if (result.success) {
         toast({
           title: "Exam Created Successfully",
-          description: `Exam "${formData.title}" has been created with 10 questions from all difficulty levels.`,
+          description: `Exam has been created with 10 questions from all difficulty levels.`,
         })
 
         // Reset form
         setFormData({
-          title: '',
           documentId: ''
         })
       }
@@ -75,16 +72,6 @@ export default function CreateExam() {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="title">Exam Title</Label>
-            <Input
-              id="title"
-              value={formData.title}
-              onChange={(e) => handleInputChange('title', e.target.value)}
-              placeholder="Enter exam title"
-              required
-            />
-          </div>
 
           <DocumentsDropdown
             onSelect={(doc) => handleInputChange('documentId', doc.id)}

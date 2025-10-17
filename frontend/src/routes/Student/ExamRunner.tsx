@@ -97,21 +97,6 @@ export default function ExamRunner({
     }
   }, [examState.sessionId, isLoading, user?.id]);
 
-  // Update questions when data is loaded
-  useEffect(() => {
-
-    console.log('=== QUESTIONS LOADED ===');
-    console.log('questions.data:', questions.data);
-    console.log('questions.data?.questions length:', questions.data?.questions?.length);
-
-    if (questions.data?.questions) {
-      setExamState((prev) => ({
-        ...prev,
-        questions: questions.data.questions,
-      }));
-      console.log('Updated examState.questions to:', questions.data.questions.length, 'questions');
-    }
-  }, [questions.data]);
 
   const handleStartExam = async () => {
     if (!user) return;
@@ -131,6 +116,7 @@ export default function ExamRunner({
         setExamState((prev) => ({
           ...prev,
           sessionId: result.session_id,
+          questions: result.selected_questions || [],
           totalQuestions: result.total_questions || null,
         }));
 
@@ -139,7 +125,7 @@ export default function ExamRunner({
       }
     } catch (error) {
       console.error("Start exam error:", error);
-      hasStartedRef.current = false;  // ← ADD THIS LINE to allow retry on error
+      hasStartedRef.current = false;  
       toast({
         title: "Failed to Start Exam",
         description:

@@ -46,7 +46,7 @@ export type UploadResponse = {
 };
 
 export type CreateExamRequest = {
-  title: string;
+  title?: string;
   document_id: string | number;
   levels: number[];
   questions_per_level: number;
@@ -62,7 +62,7 @@ export type CreateExamResponse = {
 export type StartExamResponse = {
   success: boolean;
   session_id: number;
-  first_question?: Question;
+  selected_questions?: Question[];
   total_questions?: number;
   message?: string;
 };

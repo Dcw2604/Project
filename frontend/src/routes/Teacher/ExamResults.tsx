@@ -89,7 +89,7 @@ export default function ExamResults() {
   const fetchStudentAnalytics = async (studentId: number, examSessionId: number) => {
     setIsLoadingAnalytics(true)
     try {
-      const response = await fetch(`/api/api/analytics/student/${studentId}/exam/${examSessionId}/`)
+      const response = await fetch(`/api/analytics/student/${studentId}/exam/${examSessionId}/`)
       const data = await response.json()
       
       setStudentAnalytics(data)
@@ -135,7 +135,7 @@ export default function ExamResults() {
           data.results.map(async (result: ExamResult) => {
             // Fetch analytics for each student
             try {
-              const analyticsResponse = await fetch(`/api/api/analytics/student/${result.student_id}/exam/${result.exam_session_id}/`)
+              const analyticsResponse = await fetch(`/api/analytics/student/${result.student_id}/exam/${result.exam_session_id}/`)
               if (analyticsResponse.ok) {
                 const analytics = await analyticsResponse.json()
                 // Merge analytics data into result

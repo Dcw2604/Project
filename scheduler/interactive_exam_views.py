@@ -36,7 +36,16 @@ class StartExamView(APIView):
                 )
 
             exam = Exam.objects.get(id=exam_id)
-            session = ExamSession.objects.create(exam=exam, student=student)
+            # CHECK FOR EXISTING INCOMPLETE SESSION FIRST
+            session = ExamSession.objects.filter(
+                exam=exam, 
+                student=student, 
+                completed_at__isnull=True
+            ).first()
+            
+            # Only create if no incomplete session exists
+            if not session:
+                session = ExamSession.objects.create(exam=exam, student=student)
 
             # Get questions by difficulty level
             level_3_questions = list(QuestionBank.objects.filter(exam=exam, difficulty_level=3))
@@ -84,25 +93,22 @@ class StartExamView(APIView):
             print(f"  selected_question_ids: {[q.id for q in selected_questions]}")
             print(f"  session data: {request.session['adaptive_exam']}")
 
-            first_question = selected_questions[0] if selected_questions else None
-            first_question_data = None
-            if first_question:
-                first_question_data = {
-                    "id": first_question.id,
-                    "question_text": first_question.question_text,
-                    "option_a": first_question.option_a,
-                    "option_b": first_question.option_b,
-                    "option_c": first_question.option_c,
-                    "option_d": first_question.option_d,
-                    "difficulty_level": first_question.difficulty_level,
-                    "question_type": first_question.question_type,
-                }
+            # Return ALL selected questions, not just the first one
+            selected_questions_data = []
+            for q in selected_questions:
+                selected_questions_data.append({
+                    "id": q.id,
+                    "question_text": q.question_text,
+                    "difficulty_level": q.difficulty_level,
+                    "question_type": q.question_type,
+                })
 
             return Response({
                 "success": True,
                 "session_id": session.id,
                 "total_questions": len(selected_questions),
-                "first_question": first_question_data,
+                #"first_question": first_question_data,
+                "selected_questions": selected_questions_data,  # Return all selected questions
             })
         except Exception as e:
             logger.error("Start exam failed: %s", e)
@@ -639,8 +645,8 @@ class GetExamResultsView(APIView):
         try:
             exam = Exam.objects.get(id=exam_id)
             
-            # Get all exam sessions for this exam
-            sessions = ExamSession.objects.filter(exam=exam)
+            # Get only COMPLETED exam sessions for this exam
+            sessions = ExamSession.objects.filter(exam=exam, completed_at__isnull=False)
             
             results = []
             for session in sessions:

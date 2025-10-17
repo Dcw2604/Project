@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { CheckCircle, XCircle } from 'lucide-react'
+import { CheckCircle, XCircle } from 'lucide-react' 
 import type { Question } from '@/lib/types'
 
 interface QuestionCardProps {
@@ -100,14 +100,14 @@ export default function QuestionCard({
                 <Label htmlFor="answer" className="text-base font-medium">
                   Your Answer:
                 </Label>
-                <Input
+                <Textarea
                   id="answer"
-                  type="text"
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
                   placeholder="Enter your answer here..."
-                  className="text-base"
+                  className="text-base min-h-[120px] resize-y"
                   disabled={isLoading}
+                  rows={5}
                 />
               </div>
             )}

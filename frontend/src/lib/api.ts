@@ -226,7 +226,8 @@ async getCurrentUser(): Promise<{
 
     // Store in session exams
     if (response.success && response.exam_id) {
-      schemaRegistry.addSessionExam(payload.title, response.exam_id);
+      const examTitle = payload.title || `Exam ${response.exam_id}`;  // ← Generate a title if not provided
+      schemaRegistry.addSessionExam(examTitle, response.exam_id);
     }
 
     return response;
