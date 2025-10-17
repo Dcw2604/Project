@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { BarChart3, Users, Clock, TrendingUp, RefreshCw } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
 
 interface ExamResult {
   student_name: string
@@ -52,6 +53,7 @@ export default function ExamResults() {
   const [expandedStudent, setExpandedStudent] = useState<number | null>(null)
   const [studentAnalytics, setStudentAnalytics] = useState<StudentAnalytics | null>(null)
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false)
+  const [allStudentAnalytics, setAllStudentAnalytics] = useState<StudentAnalytics[]>([])
   const { toast } = useToast()
 
   // Fetch exams on component mount
@@ -131,6 +133,7 @@ export default function ExamResults() {
       
       if (data.success) {
         // Store the results with placeholder data
+        const analyticsArray: StudentAnalytics[] = []
         const resultsWithAnalytics = await Promise.all(
           data.results.map(async (result: ExamResult) => {
             // Fetch analytics for each student
@@ -138,6 +141,7 @@ export default function ExamResults() {
               const analyticsResponse = await fetch(`/api/analytics/student/${result.student_id}/exam/${result.exam_session_id}/`)
               if (analyticsResponse.ok) {
                 const analytics = await analyticsResponse.json()
+                analyticsArray.push(analytics)
                 // Merge analytics data into result
                 return {
                   ...result,
@@ -157,6 +161,7 @@ export default function ExamResults() {
           })
         )
         
+        setAllStudentAnalytics(analyticsArray)
         setResults(resultsWithAnalytics)
         toast({
           title: "Success",
@@ -205,6 +210,30 @@ export default function ExamResults() {
       avgTime
     }
   }
+
+  const calculateWeaknessData = () => {
+    const weaknessCount: Record<string, number> = {}
+    
+    allStudentAnalytics.forEach(analytics => {
+      analytics.weaknesses.forEach(weakness => {
+        weaknessCount[weakness] = (weaknessCount[weakness] || 0) + 1
+      })
+    })
+    
+    // Convert to array format for pie chart
+    const chartData = Object.entries(weaknessCount)
+      .map(([name, value]) => ({
+        name,
+        value,
+        percentage: Math.round((value / allStudentAnalytics.length) * 100)
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6)  // Top 6 weaknesses
+    
+    return chartData
+  }
+  
+  const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e']
 
   const stats = calculateStats()
   const selectedExam = exams.find(exam => exam.id.toString() === selectedExamId)
@@ -267,6 +296,51 @@ export default function ExamResults() {
             </div>
           )}
 
+          {/* Areas for Improvement Pie Chart */}
+          {results.length > 0 && allStudentAnalytics.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Areas for Improvement (All Students)
+                </CardTitle>
+                <CardDescription>
+                  Most common weaknesses across {allStudentAnalytics.length} students
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {calculateWeaknessData().length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={calculateWeaknessData()}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percentage }) => `${name}: ${percentage}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {calculateWeaknessData().map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        formatter={(value: number) => [`${value} students`, 'Count']}
+                      />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-center text-gray-500 py-8">
+                    No weakness data available yet
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Results Table */}
           {results.length > 0 ? (
             <div className="space-y-4">
@@ -303,7 +377,7 @@ export default function ExamResults() {
                             </div>
                           </td>
                           <td className="border border-gray-200 px-4 py-2">
-                            {result.questions_answered}/{result.total_questions}
+                            {result.questions_answered}
                           </td>
                           <td className="border border-gray-200 px-4 py-2">
                             {result.completed_at && result.started_at ? (

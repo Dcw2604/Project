@@ -51,7 +51,7 @@ export default function ExamRunner({
     totalQuestions: null,
   });
 
-  const [timeRemaining, setTimeRemaining] = useState(30 * 60); // 30 minutes in seconds
+  const [timeRemaining, setTimeRemaining] = useState(60 * 60); // 60 minutes in seconds
   const hasStartedRef = useRef(false);  
 
   // Load saved state from sessionStorage

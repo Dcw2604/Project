@@ -105,8 +105,9 @@ export default function UploadDocument() {
               onChange={(e) => setGradingInstructions(e.target.value)}
               disabled={uploadMutation.isPending}
               className="min-h-[80px]"
+              dir="rtl"
             />
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground" dir="rtl">
               ספק הנחיות איך Gemini צריך להעריך תשובות של תלמידים
             </p>
           </div>

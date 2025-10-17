@@ -66,7 +66,7 @@ export default function QuestionCard({
         <div className="space-y-4">
           <div>
             <Label className="text-base font-medium">Question:</Label>
-            <p className="mt-2 text-gray-900 text-lg leading-relaxed">
+            <p className="mt-2 text-gray-900 text-lg leading-relaxed" dir="rtl">
               {question.question_text}
             </p>
           </div>
