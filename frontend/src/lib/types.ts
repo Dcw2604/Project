@@ -34,6 +34,7 @@ export type Question = {
 export type UploadResponse = {
   success: boolean;
   doc_id: string | number;
+  questions_generated?: number;
   filename?: string;
   title?: string;
   grading_instructions?: string;
@@ -48,14 +49,15 @@ export type UploadResponse = {
 export type CreateExamRequest = {
   title?: string;
   document_id: string | number;
-  levels: number[];
-  questions_per_level: number;
+  levels?: number[];
+  questions_per_level?: number;
 };
 
 export type CreateExamResponse = {
   success: boolean;
   exam_id: string | number;
   questions?: number;
+  reused?: boolean;
   message?: string;
 };
 

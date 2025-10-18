@@ -13,7 +13,12 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Clock, CheckCircle, XCircle, Flag } from "lucide-react";
 import QuestionCard from "./QuestionCard";
-import type { Question, SubmitAnswersResponse, StartExamResponse, FinishExamResponse } from "@/lib/types";
+import type {
+  Question,
+  SubmitAnswersResponse,
+  StartExamResponse,
+  FinishExamResponse,
+} from "@/lib/types";
 
 interface ExamRunnerProps {
   examId: string | number;
@@ -52,7 +57,7 @@ export default function ExamRunner({
   });
 
   const [timeRemaining, setTimeRemaining] = useState(60 * 60); // 60 minutes in seconds
-  const hasStartedRef = useRef(false);  
+  const hasStartedRef = useRef(false);
 
   // Load saved state from sessionStorage
   useEffect(() => {
@@ -89,28 +94,32 @@ export default function ExamRunner({
     return () => clearInterval(timer);
   }, [examState.isFinished, timeRemaining]);
 
-// Start exam when component mounts
+  // Start exam when component mounts
   useEffect(() => {
-    if (!examState.sessionId && !isLoading && user?.id && !hasStartedRef.current) {
+    if (
+      !examState.sessionId &&
+      !isLoading &&
+      user?.id &&
+      !hasStartedRef.current
+    ) {
       hasStartedRef.current = true;
       handleStartExam();
     }
   }, [examState.sessionId, isLoading, user?.id]);
 
-
   const handleStartExam = async () => {
     if (!user) return;
 
     try {
-      const result = await startExam.mutateAsync({
+      const result = (await startExam.mutateAsync({
         examId,
         studentId: user.id || 0, // Fallback ID
-      }) as StartExamResponse; // ← Add this type assertion
+      })) as StartExamResponse; // ← Add this type assertion
 
-      console.log('=== START EXAM RESPONSE ===');
-      console.log('Full result:', result);
-      console.log('result.session_id:', result.session_id);
-      console.log('result.success:', result.success);
+      console.log("=== START EXAM RESPONSE ===");
+      console.log("Full result:", result);
+      console.log("result.session_id:", result.session_id);
+      console.log("result.success:", result.success);
 
       if (result.success) {
         setExamState((prev) => ({
@@ -120,12 +129,11 @@ export default function ExamRunner({
           totalQuestions: result.total_questions || null,
         }));
 
-        console.log('After setState - sessionId should be:', result.session_id);
-
+        console.log("After setState - sessionId should be:", result.session_id);
       }
     } catch (error) {
       console.error("Start exam error:", error);
-      hasStartedRef.current = false;  
+      hasStartedRef.current = false;
       toast({
         title: "Failed to Start Exam",
         description:
@@ -136,28 +144,28 @@ export default function ExamRunner({
   };
 
   const handleSubmitAnswer = async (answer: string) => {
-    console.log('=== SUBMIT DEBUG ===');
-    console.log('sessionId:', examState.sessionId);
-    console.log('questions.length:', examState.questions.length);
-    console.log('currentQuestionIndex:', examState.currentQuestionIndex);
-    console.log('answer:', answer);
+    console.log("=== SUBMIT DEBUG ===");
+    console.log("sessionId:", examState.sessionId);
+    console.log("questions.length:", examState.questions.length);
+    console.log("currentQuestionIndex:", examState.currentQuestionIndex);
+    console.log("answer:", answer);
     if (!examState.sessionId) return;
 
     try {
       const currentQuestion =
         examState.questions[examState.currentQuestionIndex];
-      const result = await submitAnswers.mutateAsync({
+      const result = (await submitAnswers.mutateAsync({
         examId,
         payload: {
           exam_session_id: examState.sessionId,
           question_id: Number(currentQuestion.id), // Convert to number
           answer: answer,
         },
-      }) as SubmitAnswersResponse; // ← Add this type assertion
+      })) as SubmitAnswersResponse; // ← Add this type assertion
 
       // Always move to next question (no attempts) - use local question array
       const nextIndex = examState.currentQuestionIndex + 1;
-      const maxQuestions = examState.totalQuestions || 10;  // Use totalQuestions from backend
+      const maxQuestions = examState.totalQuestions || 10; // Use totalQuestions from backend
 
       if (nextIndex < maxQuestions && nextIndex < examState.questions.length) {
         // Move to next question in local array
@@ -197,10 +205,10 @@ export default function ExamRunner({
     if (!examState.sessionId) return;
 
     try {
-      const result = await finishExam.mutateAsync({
+      const result = (await finishExam.mutateAsync({
         examId,
         examSessionId: examState.sessionId,
-      }) as FinishExamResponse;
+      })) as FinishExamResponse;
 
       setExamState((prev) => ({
         ...prev,
@@ -287,11 +295,24 @@ export default function ExamRunner({
                 Exam Completed!
               </h3>
               <p className="text-gray-600 mb-4">
-                {examState.score !== null
-                  ? `Score: ${examState.score} out of ${
-                      examState.totalQuestions || "?"
-                    } questions`
-                  : "Thank you for completing the exam"}
+                {examState.score !== null ? (
+                  <>
+                    <div className="text-xl font-semibold mb-2">
+                      Score: {examState.score} out of {examState.totalQuestions}{" "}
+                      questions
+                    </div>
+                    <div className="text-sm">
+                      {examState.score >= (examState.totalQuestions || 0) * 0.8
+                        ? "Excellent work! 🌟"
+                        : examState.score >=
+                          (examState.totalQuestions || 0) * 0.6
+                        ? "Good job! Keep practicing 📖"
+                        : "Keep learning! You've got this 💪"}
+                    </div>
+                  </>
+                ) : (
+                  "Thank you for completing the exam"
+                )}
               </p>
               <Button onClick={onComplete}>Back to Dashboard</Button>
             </div>

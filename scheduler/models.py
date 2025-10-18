@@ -36,7 +36,13 @@ class Exam(models.Model):
 
 
 class QuestionBank(models.Model):
-    exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="questions")
+    exam = models.ForeignKey(
+        Exam, 
+        on_delete=models.CASCADE, 
+        related_name="questions",
+        null=True,  # Allow null
+        blank=True  # Allow blank
+    )
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="questions")
     question_text = models.TextField()
     

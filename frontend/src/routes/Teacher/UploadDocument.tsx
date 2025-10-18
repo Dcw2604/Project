@@ -3,7 +3,7 @@ import { useUploadDocument } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+// import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardContent,
@@ -27,37 +27,39 @@ export default function UploadDocument() {
     }
   };
 
+  // frontend/src/routes/Teacher/UploadDocument.tsx
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) return;
+
+    if (!selectedFile) {
+      toast({
+        title: "No File Selected",
+        description: "Please select a file to upload",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       const result = await uploadMutation.mutateAsync({
         file: selectedFile,
-        gradingInstructions: gradingInstructions.trim() || undefined,
+        gradingInstructions,
       });
 
       if (result.success) {
-        const filename = result.filename || selectedFile.name;
         toast({
           title: "Upload Successful",
-          description: `Document "${filename}" uploaded successfully`,
+          description: `Document uploaded and ${result.questions_generated} questions generated!`, // ✅ Show questions count
         });
+
         setSelectedFile(null);
         setGradingInstructions("");
-        // Reset file input
-        const fileInput = document.getElementById(
-          "file-upload"
-        ) as HTMLInputElement;
-        if (fileInput) fileInput.value = "";
-      } else {
-        throw new Error("Upload failed");
       }
     } catch (error) {
       toast({
         title: "Upload Failed",
-        description:
-          error instanceof Error ? error.message : "Failed to upload document",
+        description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive",
       });
     }
