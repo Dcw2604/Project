@@ -228,7 +228,7 @@ export default function ExamResults() {
         percentage: Math.round((value / allStudentAnalytics.length) * 100)
       }))
       .sort((a, b) => b.value - a.value)
-      .slice(0, 6)  // Top 6 weaknesses
+      //.slice(0, 10)  // Top 10 weaknesses
     
     return chartData
   }

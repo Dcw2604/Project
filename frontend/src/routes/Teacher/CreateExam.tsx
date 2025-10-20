@@ -52,7 +52,7 @@ export default function CreateExam() {
 
         toast({
           title: "Exam Created Successfully",
-          description: message,
+          //description: message,
         });
 
         setFormData({ documentId: "" });

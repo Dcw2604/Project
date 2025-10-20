@@ -46,6 +46,10 @@ class StartExamView(APIView):
             # Only create if no incomplete session exists
             if not session:
                 session = ExamSession.objects.create(exam=exam, student=student)
+            else:
+                # Reset started_at when resuming an incomplete session
+                session.started_at = timezone.now()
+                session.save()
 
             # Get questions by difficulty level
             level_3_questions = list(QuestionBank.objects.filter(exam=exam, difficulty_level=3))
@@ -474,6 +478,7 @@ def calculate_topic_performance(exam_session, answers):
                 'percentage_score': percentage
             }
         )
+#def create_student_analytics(exam_session, total_questions_in_exam=None):
 def create_student_analytics(exam_session):
     """יוצר אנליטיקס כללי של התלמיד"""
     # Get actual answers instead of relying on topic performance
@@ -490,9 +495,19 @@ def create_student_analytics(exam_session):
     for ans in answers:
         logger.info(f"    Answer: Q{ans.question.id}, is_correct={ans.is_correct}")
     
-    total_questions = answers.count()
+# Get total questions - use passed value or count from database
+#    if total_questions_in_exam is None:
+        # Fallback: count unique questions that were answered
+ #       total_questions_in_exam = answers.values('question').distinct().count()
+  #      if total_questions_in_exam == 0:
+  #          total_questions_in_exam = QuestionBank.objects.filter(exam=exam_session.exam).count()
+
+    #total_questions = answers.count()
+    total_questions = QuestionBank.objects.filter(exam=exam_session.exam).count()
+   # total_questions = total_questions_in_exam
     total_correct = answers.filter(is_correct=True).count()
     overall_percentage = (total_correct / total_questions * 100) if total_questions > 0 else 0
+
     
     # Try to get topic performances if they exist
     topic_performances = TopicPerformance.objects.filter(
