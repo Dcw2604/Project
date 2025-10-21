@@ -125,8 +125,10 @@ export type ExamCard = {
   status: string;
   id: string | number;
   created_at?: string;
+  completed_at?: string;
   total_questions?: number;
   completed?: boolean;
+  score?: number;
 };
 
 export type ExamRef = {
