@@ -39,9 +39,9 @@ export type UploadResponse = {
   title?: string;
   grading_instructions?: string;
   result?: {
-    level_1_questions: Question[];
-    level_2_questions: Question[];
     level_3_questions: Question[];
+    level_4_questions: Question[];
+    level_5_questions: Question[];
     total_questions: number;
   };
 };

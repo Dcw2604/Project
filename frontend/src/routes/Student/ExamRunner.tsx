@@ -536,7 +536,7 @@ export default function ExamRunner({
         <div className="bg-gray-100 h-2">
           <div
             className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full transition-all duration-300"
-            style={{ width: `${progress}%` }}
+            style={{ width: `${answeredCount/ totalCount * 100}%` }}
           />
         </div>
       </div>

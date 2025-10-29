@@ -269,9 +269,9 @@ export default function TeacherDashboard() {
               <FileText className="h-4 w-4" />
               <span className="hidden sm:inline">Questions</span>
             </TabsTrigger>
-            <TabsTrigger value="health" className="flex items-center gap-2">
+            <TabsTrigger value="System Status" className="flex items-center gap-2">
               <Heart className="h-4 w-4" />
-              <span className="hidden sm:inline">Health</span>
+              <span className="hidden sm:inline">System Status</span>
             </TabsTrigger>
             <TabsTrigger value="results" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
@@ -447,10 +447,10 @@ export default function TeacherDashboard() {
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={() => handleQuickAction('health')}
+                    onClick={() => handleQuickAction('System Status')}
                   >
                     <Heart className="h-4 w-4 mr-2" />
-                    View Health Panel
+                    View Status Panel
                   </Button>
                 </div>
               </CardContent>
@@ -469,7 +469,7 @@ export default function TeacherDashboard() {
             <ViewQuestions />
           </TabsContent>
 
-          <TabsContent value="health">
+          <TabsContent value="System Status">
             <HealthPanel />
           </TabsContent>
 

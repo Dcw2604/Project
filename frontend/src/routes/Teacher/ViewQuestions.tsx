@@ -163,11 +163,11 @@ export default function ViewQuestions() {
 
   const getDifficultyBadge = (level: number) => {
     const configs = {
-      1: { color: "bg-blue-100 text-blue-800 border-blue-300", label: "Level 1 - Easy" },
-      2: { color: "bg-yellow-100 text-yellow-800 border-yellow-300", label: "Level 2 - Medium" },
-      3: { color: "bg-red-100 text-red-800 border-red-300", label: "Level 3 - Hard" },
+      3: { color: "bg-blue-100 text-blue-800 border-blue-300", label: "Level 3 - Easy" },
+      4: { color: "bg-yellow-100 text-yellow-800 border-yellow-300", label: "Level 4 - Medium" },
+      5: { color: "bg-red-100 text-red-800 border-red-300", label: "Level 5 - Hard" },
     };
-    return configs[level as 1 | 2 | 3] || { color: "bg-gray-100 text-gray-800", label: `Level ${level}` };
+    return configs[level as 3 | 4 | 5] || { color: "bg-gray-100 text-gray-800", label: `Level ${level}` };
   };
 
   const getQuestionTypeBadge = (type: string) => {
@@ -179,9 +179,9 @@ export default function ViewQuestions() {
   };
 
   const difficultyStats = {
-    level1: questions.filter(q => q.difficulty_level === 1).length,
-    level2: questions.filter(q => q.difficulty_level === 2).length,
     level3: questions.filter(q => q.difficulty_level === 3).length,
+    level4: questions.filter(q => q.difficulty_level === 4).length,
+    level5: questions.filter(q => q.difficulty_level === 5).length,
   };
 
   return (
@@ -263,8 +263,8 @@ export default function ViewQuestions() {
               <Card className="card-hover bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
                 <CardContent className="pt-6">
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-700">{difficultyStats.level1}</div>
-                    <div className="text-sm text-blue-600 mt-1">Level 1 - Easy</div>
+                    <div className="text-3xl font-bold text-blue-700">{difficultyStats.level3}</div>
+                    <div className="text-sm text-blue-600 mt-1">Level 3 - Easy</div>
                   </div>
                 </CardContent>
               </Card>
@@ -272,8 +272,8 @@ export default function ViewQuestions() {
               <Card className="card-hover bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200">
                 <CardContent className="pt-6">
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-yellow-700">{difficultyStats.level2}</div>
-                    <div className="text-sm text-yellow-600 mt-1">Level 2 - Medium</div>
+                    <div className="text-3xl font-bold text-yellow-700">{difficultyStats.level4}</div>
+                    <div className="text-sm text-yellow-600 mt-1">Level 4 - Medium</div>
                   </div>
                 </CardContent>
               </Card>
@@ -281,8 +281,8 @@ export default function ViewQuestions() {
               <Card className="card-hover bg-gradient-to-br from-red-50 to-red-100 border-red-200">
                 <CardContent className="pt-6">
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-red-700">{difficultyStats.level3}</div>
-                    <div className="text-sm text-red-600 mt-1">Level 3 - Hard</div>
+                    <div className="text-3xl font-bold text-red-700">{difficultyStats.level5}</div>
+                    <div className="text-sm text-red-600 mt-1">Level 5 - Hard</div>
                   </div>
                 </CardContent>
               </Card>
@@ -319,9 +319,9 @@ export default function ViewQuestions() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Levels</SelectItem>
-                  <SelectItem value="1">Level 1</SelectItem>
-                  <SelectItem value="2">Level 2</SelectItem>
                   <SelectItem value="3">Level 3</SelectItem>
+                  <SelectItem value="4">Level 4</SelectItem>
+                  <SelectItem value="5">Level 5</SelectItem>
                 </SelectContent>
               </Select>
               

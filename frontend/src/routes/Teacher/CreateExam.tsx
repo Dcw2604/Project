@@ -143,15 +143,15 @@ export default function CreateExam() {
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-purple-700">Level 1</span>
-                    <span className="font-bold text-purple-800">30%</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-purple-700">Level 2</span>
-                    <span className="font-bold text-purple-800">30%</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
                     <span className="text-purple-700">Level 3</span>
+                    <span className="font-bold text-purple-800">30%</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-purple-700">Level 4</span>
+                    <span className="font-bold text-purple-800">30%</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-purple-700">Level 5</span>
                     <span className="font-bold text-purple-800">40%</span>
                   </div>
                 </div>
@@ -179,11 +179,11 @@ export default function CreateExam() {
             <ul className="space-y-2 text-sm text-gray-700">
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                Automatically generates 10 questions per student
+                Automatically generates 10 questions per exam
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                Balanced difficulty distribution (1, 2, and 3)
+                Balanced difficulty distribution (3, 4, and 5)
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>

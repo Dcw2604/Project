@@ -29,7 +29,7 @@ export default function HealthPanel() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Heart className="h-5 w-5 text-pink-600" />
-            System Health
+            System Status
           </CardTitle>
           <CardDescription>Checking system status...</CardDescription>
         </CardHeader>
@@ -47,7 +47,7 @@ export default function HealthPanel() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-red-600">
             <AlertCircle className="h-5 w-5" />
-            System Health
+            System Status
           </CardTitle>
           <CardDescription>Unable to check system status</CardDescription>
         </CardHeader>
@@ -94,7 +94,7 @@ export default function HealthPanel() {
             ) : (
               <AlertCircle className="h-5 w-5 text-red-600" />
             )}
-            System Health
+            System Status
           </CardTitle>
           <Button
             variant="outline"
