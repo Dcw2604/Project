@@ -52,11 +52,11 @@ export default function UploadDocument() {
       return;
     }
 
-    // Check file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
+    // Check file size (max 20MB)
+    if (file.size > 20 * 1024 * 1024) {
       toast({
         title: "File Too Large",
-        description: "Please upload a file smaller than 10MB",
+        description: "Please upload a file smaller than 20MB",
         variant: "destructive",
       });
       return;
@@ -189,7 +189,7 @@ export default function UploadDocument() {
                   Choose File
                 </Label>
                 <p className="text-xs text-gray-500 mt-4">
-                  Supported formats: PDF, TXT, DOC, DOCX (Max 10MB)
+                  Supported formats: PDF, TXT, DOC, DOCX (Max 20MB)
                 </p>
               </div>
             ) : (
