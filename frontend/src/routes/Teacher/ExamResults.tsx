@@ -160,8 +160,8 @@ export default function ExamResults() {
                 return {
                   ...result,
                   score: analytics.total_correct,
-                  total_questions: analytics.total_questions,
-                  questions_answered: analytics.total_questions,
+                  total_questions: Math.min(analytics.total_questions, 10),
+                  questions_answered: Math.min(analytics.total_questions, 10),
                   overall_percentage: analytics.overall_percentage,
                   started_at: result.started_at,
                   completed_at: result.completed_at,
@@ -713,18 +713,21 @@ export default function ExamResults() {
                                     <div className="grid grid-cols-3 gap-4">
                                       <div className="p-4 bg-white rounded-lg border shadow-sm">
                                         <div className="text-sm text-gray-600 mb-1">Correct Answers</div>
-                                        <div className="text-2xl font-bold text-blue-600">{studentAnalytics.total_correct}/{studentAnalytics.total_questions}</div>
+                                        <div className="text-2xl font-bold text-blue-600">{studentAnalytics.total_correct}/{Math.min(studentAnalytics.total_questions, 10)}</div>
                                       </div>
                                       <div className="p-4 bg-white rounded-lg border shadow-sm">
                                         <div className="text-sm text-gray-600 mb-1">Overall Score</div>
-                                        <div className="text-2xl font-bold text-purple-600">{Math.round(studentAnalytics.overall_percentage)}%</div>
+                                        <div className="text-2xl font-bold text-purple-600">{Math.round((studentAnalytics.total_correct / Math.min(studentAnalytics.total_questions, 10)) * 100)}%</div>
                                       </div>
                                       <div className="p-4 bg-white rounded-lg border shadow-sm">
                                         <div className="text-sm text-gray-600 mb-1">Performance</div>
                                         <div className="text-xl font-bold">
-                                          {studentAnalytics.overall_percentage >= 80 ? '🌟 Excellent' : 
-                                          studentAnalytics.overall_percentage >= 60 ? '✅ Good' : 
-                                          studentAnalytics.overall_percentage >= 40 ? '⚠️ Fair' : '❌ Needs Help'}
+                                        {(() => {
+                                          const recalculatedPercentage = Math.round((studentAnalytics.total_correct / Math.min(studentAnalytics.total_questions, 10)) * 100);
+                                          return recalculatedPercentage >= 80 ? '🌟 Excellent' : 
+                                                recalculatedPercentage >= 60 ? '✅ Good' : 
+                                                recalculatedPercentage >= 40 ? '⚠️ Fair' : '❌ Needs Help';
+                                        })()}
                                         </div>
                                       </div>
                                     </div>
