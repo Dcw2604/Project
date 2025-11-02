@@ -67,7 +67,7 @@ export default function ExamCard({ exam, onStart, isLoading = false }: ExamCardP
             className="w-full"
           >
             <Play className="h-4 w-4 mr-2" />
-            {isLoading ? 'Starting...' : 'Start Exam'}
+            {isLoading ? 'Starting...' : 'Start Quiz'}
           </Button>
         </div>
       </CardContent>

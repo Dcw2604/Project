@@ -55,11 +55,11 @@ export default function CreateExam() {
 
       if (result.success) {
         const message = result.reused
-          ? `Exam created using ${result.questions} existing questions`
-          : `Exam created with ${result.questions} new questions`;
+          ? `Quiz created using ${result.questions} existing questions`
+          : `Quiz created with ${result.questions} new questions`;
 
         toast({
-          title: "Exam Created Successfully! 🎉",
+          title: "Quiz Created Successfully! 🎉",
           //description: message,
         });
 
@@ -80,10 +80,10 @@ export default function CreateExam() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Plus className="h-5 w-5 text-purple-600" />
-          Create New Exam
+          Create New Quiz
         </CardTitle>
         <CardDescription>
-          Create an adaptive exam with automatically selected questions
+          Create an adaptive Quiz with automatically selected questions
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -120,7 +120,7 @@ export default function CreateExam() {
           {/* Exam Configuration Info */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-gray-700">Step 2: Exam Configuration</h3>
+              <h3 className="text-sm font-semibold text-gray-700">Step 2: Quiz Configuration</h3>
               <Sparkles className="h-4 w-4 text-yellow-500" />
             </div>
             
@@ -132,7 +132,7 @@ export default function CreateExam() {
                   <span className="text-sm font-semibold text-blue-900">Total Questions</span>
                 </div>
                 <p className="text-3xl font-bold text-blue-700">10</p>
-                <p className="text-xs text-blue-600 mt-1">Questions per exam</p>
+                <p className="text-xs text-blue-600 mt-1">Questions per Quiz</p>
               </div>
 
               {/* Difficulty Mix */}
@@ -174,12 +174,12 @@ export default function CreateExam() {
           <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
             <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600" />
-              Exam Features
+              Quiz Features
             </h4>
             <ul className="space-y-2 text-sm text-gray-700">
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                Automatically generates 10 questions per exam
+                Automatically generates 10 questions per Quiz
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
@@ -205,12 +205,12 @@ export default function CreateExam() {
             {createExamMutation.isPending ? (
               <>
                 <div className="spinner w-5 h-5 border-2 mr-2"></div>
-                Creating Exam...
+                Creating Quiz...
               </>
             ) : (
               <>
                 <Plus className="h-5 w-5 mr-2" />
-                Create Exam
+                Create Quiz
               </>
             )}
           </Button>
@@ -244,9 +244,9 @@ export default function CreateExam() {
             <div className="flex items-start gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
               <div>
-                <h4 className="font-semibold text-green-900 mb-1">Exam Ready!</h4>
+                <h4 className="font-semibold text-green-900 mb-1">Quiz Ready!</h4>
                 <p className="text-sm text-green-700">
-                  Your exam has been created and is ready for students. They can now take the exam from their dashboard.
+                  Your Quiz has been created and is ready for students. They can now take the Quiz from their dashboard.
                 </p>
               </div>
             </div>

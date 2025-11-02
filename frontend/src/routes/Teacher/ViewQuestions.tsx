@@ -81,14 +81,14 @@ export default function ViewQuestions() {
       } else {
         toast({
           title: "Error",
-          description: "Failed to fetch exams",
+          description: "Failed to fetch quizzes",
           variant: "destructive",
         });
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to fetch exams",
+        description: "Failed to fetch quizzes",
         variant: "destructive",
       });
     } finally {
@@ -192,20 +192,20 @@ export default function ViewQuestions() {
           View Questions
         </CardTitle>
         <CardDescription>
-          Browse and filter all questions available for exams
+          Browse and filter all questions available for quizzes
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-6">
           {/* Exam Selection */}
           <div className="space-y-2">
-            <Label htmlFor="examSelect">Select Exam</Label>
+            <Label htmlFor="examSelect">Select Quiz</Label>
             <div className="flex gap-2">
               <Select value={selectedExamId} onValueChange={setSelectedExamId}>
                 <SelectTrigger className="flex-1">
                   <SelectValue
                     placeholder={
-                      isLoadingExams ? "Loading exams..." : "Choose an exam"
+                      isLoadingExams ? "Loading Quizzes..." : "Choose a Quiz"
                     }
                   />
                 </SelectTrigger>
@@ -473,7 +473,7 @@ export default function ViewQuestions() {
                 No Questions Found
               </h3>
               <p className="text-gray-500">
-                This exam doesn't have any questions yet
+                This Quiz doesn't have any questions yet
               </p>
             </div>
           ) : null}

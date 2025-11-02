@@ -90,14 +90,14 @@ export default function ExamResults() {
       } else {
         toast({
           title: "Error",
-          description: "Failed to fetch exams",
+          description: "Failed to fetch Quizzes",
           variant: "destructive",
         })
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to fetch exams",
+        description: "Failed to fetch Quizzes",
         variant: "destructive",
       })
     } finally {
@@ -137,7 +137,7 @@ export default function ExamResults() {
     if (!selectedExamId) {
       toast({
         title: "Error",
-        description: "Please select an exam",
+        description: "Please select a Quiz",
         variant: "destructive",
       })
       return
@@ -368,7 +368,7 @@ export default function ExamResults() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <BarChart3 className="h-5 w-5" />
-          Exam Results Analytics
+          Quiz Results Analytics
         </CardTitle>
         <CardDescription>
           Comprehensive performance analysis and student insights
@@ -378,11 +378,11 @@ export default function ExamResults() {
         <div className="space-y-6">
           {/* Exam Selection */}
           <div className="space-y-2">
-            <Label htmlFor="examSelect">Select Exam</Label>
+            <Label htmlFor="examSelect">Select Quiz</Label>
             <div className="flex gap-2">
               <Select value={selectedExamId} onValueChange={setSelectedExamId}>
                 <SelectTrigger className="flex-1">
-                  <SelectValue placeholder={isLoadingExams ? "Loading exams..." : "Choose an exam"} />
+                  <SelectValue placeholder={isLoadingExams ? "Loading quizzes..." : "Choose a Quiz"} />
                 </SelectTrigger>
                 <SelectContent>
                   {exams.map((exam) => (
@@ -436,7 +436,7 @@ export default function ExamResults() {
                     <span className="text-sm font-medium text-gray-600">Total Students</span>
                   </div>
                   <div className="text-3xl font-bold text-gray-900">{stats.totalStudents}</div>
-                  <p className="text-xs text-gray-500 mt-1">Completed exam</p>
+                  <p className="text-xs text-gray-500 mt-1">Completed Quiz</p>
                 </CardContent>
               </Card>
               
@@ -469,7 +469,7 @@ export default function ExamResults() {
                     <span className="text-sm font-medium text-gray-600">Avg. Time</span>
                   </div>
                   <div className="text-3xl font-bold text-gray-900">{stats.avgTime}</div>
-                  <p className="text-xs text-gray-500 mt-1">Per exam</p>
+                  <p className="text-xs text-gray-500 mt-1">Per Quiz</p>
                 </CardContent>
               </Card>
             </div>
@@ -853,7 +853,7 @@ export default function ExamResults() {
                 No Results Found
               </h3>
               <p className="text-gray-500">
-                No students have taken this exam yet.
+                No students have taken this Quiz yet.
               </p>
             </div>
           ) : (
@@ -862,10 +862,10 @@ export default function ExamResults() {
                 <BarChart3 className="h-8 w-8 text-blue-500" />
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">
-                Select an Exam
+                Select a Quiz
               </h3>
               <p className="text-gray-500">
-                Choose an exam from the dropdown above to view detailed results and analytics
+                Choose a Quiz from the dropdown above to view detailed results and analytics
               </p>
             </div>
           )}

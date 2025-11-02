@@ -94,7 +94,7 @@ export default function StudentDashboard() {
     url.searchParams.delete('examId')
     window.history.replaceState({}, '', url.toString())
     toast({
-      title: "Exam Completed! 🎉",
+      title: "Quiz Completed! 🎉",
       description: "Great job! Your results have been saved.",
     })
   }
@@ -111,7 +111,7 @@ export default function StudentDashboard() {
     refetch()
     toast({
       title: "Refreshed",
-      description: "Exam list has been updated",
+      description: "Quiz list has been updated",
     })
   }
 
@@ -187,7 +187,7 @@ export default function StudentDashboard() {
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Available Exams</p>
+                      <p className="text-sm font-medium text-gray-600">Available Quizzes</p>
                       <p className="text-3xl font-bold text-gray-900 mt-2">
                         {stats.totalExamsAvailable}
                       </p>
@@ -208,7 +208,7 @@ export default function StudentDashboard() {
                       <p className="text-3xl font-bold text-gray-900 mt-2">
                         {stats.totalExamsTaken}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">Exams taken</p>
+                      <p className="text-xs text-gray-500 mt-1">Quizzes taken</p>
                     </div>
                     <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
                       <CheckCircle2 className="h-6 w-6 text-green-600" />
@@ -252,7 +252,7 @@ export default function StudentDashboard() {
               <CardContent className="pt-6">
                 <div className="flex items-center gap-2 text-red-600">
                   <AlertCircle className="h-5 w-5" />
-                  <span>Failed to load exams: {error.message}</span>
+                  <span>Failed to load Quizzes: {error.message}</span>
                 </div>
                 <Button 
                   variant="outline" 
@@ -274,12 +274,12 @@ export default function StudentDashboard() {
                     <BookOpen className="h-8 w-8 text-blue-600" />
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                    No Exams Available
+                    No Quizzes Available
                   </h3>
                   <p className="text-gray-500 mb-6 max-w-md mx-auto">
                     {!discovery?.exams 
-                      ? "No exams are currently available. Check back later or contact your teacher."
-                      : "No exams have been assigned to you yet."
+                      ? "No Quizzes are currently available. Check back later or contact your teacher."
+                      : "No Quizzes have been assigned to you yet."
                     }
                   </p>
                   <Button variant="outline" onClick={handleRefresh}>
@@ -297,16 +297,16 @@ export default function StudentDashboard() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Your Exams</CardTitle>
+                    <CardTitle>Your Quizzes</CardTitle>
                     <CardDescription>
-                      {exams.length} total exam{exams.length !== 1 ? 's' : ''}
+                      {exams.length} total Quizzes{exams.length !== 1 ? 's' : ''}
                     </CardDescription>
                   </div>
                   {/* Search Bar */}
                   <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
-                      placeholder="Search exams..."
+                      placeholder="Search Quizzes..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-9"
@@ -343,7 +343,7 @@ export default function StudentDashboard() {
                       <div className="text-center py-12">
                         <BookOpen className="h-12 w-12 text-gray-300 mx-auto mb-3" />
                         <p className="text-gray-500">
-                          {searchQuery ? 'No exams match your search' : 'No available exams'}
+                          {searchQuery ? 'No Quizzes match your search' : 'No available Quizzes'}
                         </p>
                       </div>
                     )}
@@ -389,7 +389,7 @@ export default function StudentDashboard() {
                       <div className="text-center py-12">
                         <CheckCircle2 className="h-12 w-12 text-gray-300 mx-auto mb-3" />
                         <p className="text-gray-500">
-                          {searchQuery ? 'No completed exams match your search' : 'No completed exams yet'}
+                          {searchQuery ? 'No completed Quizzes match your search' : 'No completed Quizzes yet'}
                         </p>
                         {!searchQuery && availableExams.length > 0 && (
                           <Button
@@ -397,7 +397,7 @@ export default function StudentDashboard() {
                             className="mt-4"
                             onClick={() => setActiveTab('available')}
                           >
-                            View Available Exams
+                            View Available Quizzes
                           </Button>
                         )}
                       </div>

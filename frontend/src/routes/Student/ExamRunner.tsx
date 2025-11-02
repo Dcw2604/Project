@@ -88,7 +88,7 @@ export default function ExamRunner({
         }
         setExamState((prev) => ({ ...prev, ...parsed }));
       } catch (error) {
-        console.error("Failed to load saved exam state:", error);
+        console.error("Failed to load saved Quiz state:", error);
       }
     }
   }, [examId]);
@@ -150,12 +150,12 @@ export default function ExamRunner({
         }));
       }
     } catch (error) {
-      console.error("Start exam error:", error);
+      console.error("Start Quiz error:", error);
       hasStartedRef.current = false;
       toast({
-        title: "Failed to Start Exam",
+        title: "Failed to Start Quiz",
         description:
-          error instanceof Error ? error.message : "Could not start exam",
+          error instanceof Error ? error.message : "Could not start Quiz",
         variant: "destructive",
       });
     }
@@ -271,7 +271,7 @@ export default function ExamRunner({
       toast({
         title: "Error",
         description:
-          error instanceof Error ? error.message : "Failed to finish exam",
+          error instanceof Error ? error.message : "Failed to finish Quiz",
         variant: "destructive",
       });
     }
@@ -303,7 +303,7 @@ export default function ExamRunner({
                 Review Your Answers
               </CardTitle>
               <CardDescription>
-                Please review your answers before submitting the exam
+                Please review your answers before submitting the Quiz
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -364,7 +364,7 @@ export default function ExamRunner({
                   disabled={finishExam.isPending}
                   className="flex-1 bg-green-600 hover:bg-green-700"
                 >
-                  {finishExam.isPending ? "Submitting..." : "Submit Exam"}
+                  {finishExam.isPending ? "Submitting..." : "Submit Quiz"}
                 </Button>
               </div>
             </CardContent>
@@ -380,7 +380,7 @@ export default function ExamRunner({
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-gray-600 text-lg">Starting exam...</p>
+          <p className="text-gray-600 text-lg">Starting Quiz...</p>
         </div>
       </div>
     );
@@ -395,10 +395,10 @@ export default function ExamRunner({
             <div className="text-center">
               <XCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                Exam Error
+                Quiz Error
               </h3>
               <p className="text-gray-600 mb-4">
-                {error.message || "Failed to load exam"}
+                {error.message || "Failed to load Quiz"}
               </p>
               <Button onClick={onBack} variant="outline">
                 <ArrowLeft className="h-4 w-4 mr-2" />
@@ -429,7 +429,7 @@ export default function ExamRunner({
                 Exam Completed!
               </h3>
               <p className="text-gray-600 mb-6">
-                Congratulations on completing the exam
+                Congratulations on completing the Quiz
               </p>
               
               {examState.score !== null && (
@@ -476,7 +476,7 @@ export default function ExamRunner({
                 No Questions Available
               </h3>
               <p className="text-gray-600 mb-4">
-                This exam doesn't have any questions yet.
+                This Quiz doesn't have any questions yet.
               </p>
               <Button onClick={onBack} variant="outline">
                 <ArrowLeft className="h-4 w-4 mr-2" />
@@ -497,7 +497,7 @@ export default function ExamRunner({
           <div className="flex justify-between items-center h-16">
             <Button variant="ghost" onClick={onBack} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
-              Exit Exam
+              Exit Quiz
             </Button>
 
             <div className="flex items-center gap-6">

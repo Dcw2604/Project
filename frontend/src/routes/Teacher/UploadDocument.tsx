@@ -45,8 +45,8 @@ export default function UploadDocument() {
     
     if (!validTypes.includes(fileExtension)) {
       toast({
-        title: "Invalid File Type",
-        description: "Please upload a PDF, TXT, DOC, or DOCX file",
+        title: "Invalid Files Type",
+        description: "Please upload PDF, TXT, DOC, or DOCX files",
         variant: "destructive",
       });
       return;
@@ -55,8 +55,8 @@ export default function UploadDocument() {
     // Check file size (max 20MB)
     if (file.size > 20 * 1024 * 1024) {
       toast({
-        title: "File Too Large",
-        description: "Please upload a file smaller than 20MB",
+        title: "Files Too Large",
+        description: "Please upload files smaller than 20MB",
         variant: "destructive",
       });
       return;
@@ -64,7 +64,7 @@ export default function UploadDocument() {
 
     setSelectedFile(file);
     toast({
-      title: "File Selected",
+      title: "Files Selected",
       description: `${file.name} ready to upload`,
     });
   };
@@ -95,8 +95,8 @@ export default function UploadDocument() {
 
     if (!selectedFile) {
       toast({
-        title: "No File Selected",
-        description: "Please select a file to upload",
+        title: "No Files Selected",
+        description: "Please select a files to upload",
         variant: "destructive",
       });
       return;
@@ -144,7 +144,7 @@ export default function UploadDocument() {
           Upload Document
         </CardTitle>
         <CardDescription>
-          Upload a document to automatically generate exam questions
+          Upload documents to automatically generate quizzes questions
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -168,10 +168,10 @@ export default function UploadDocument() {
                   <Upload className="h-8 w-8 text-blue-600" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  {isDragging ? 'Drop your file here' : 'Upload Document'}
+                  {isDragging ? 'Drop your files here' : 'Upload Document'}
                 </h3>
                 <p className="text-sm text-gray-600 mb-4">
-                  Drag and drop your file here, or click to browse
+                  Drag and drop your files here, or click to browse
                 </p>
                 <Input
                   id="file-upload"
@@ -186,7 +186,7 @@ export default function UploadDocument() {
                   className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer transition-colors btn-hover"
                 >
                   <FileText className="h-4 w-4" />
-                  Choose File
+                  Choose Files
                 </Label>
                 <p className="text-xs text-gray-500 mt-4">
                   Supported formats: PDF, TXT, DOC, DOCX (Max 20MB)
@@ -198,7 +198,7 @@ export default function UploadDocument() {
                   <FileCheck className="h-8 w-8 text-green-600" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  File Selected
+                  Files Selected
                 </h3>
                 <div className="inline-flex items-center gap-3 px-4 py-3 bg-white border border-green-200 rounded-lg">
                   <FileText className="h-5 w-5 text-green-600" />
@@ -249,7 +249,7 @@ export default function UploadDocument() {
                 <div className="flex-1">
                   <h4 className="font-semibold text-blue-900 mb-1">Ready to Process</h4>
                   <p className="text-sm text-blue-800">
-                    Your document will be analyzed by AI to automatically generate exam questions
+                    Your documents will be analyzed by AI to automatically generate quizzes questions
                     across different difficulty levels.
                   </p>
                 </div>
@@ -313,7 +313,7 @@ export default function UploadDocument() {
               <div>
                 <h4 className="font-semibold text-green-900 mb-1">Success!</h4>
                 <p className="text-sm text-green-700">
-                  Questions have been generated and saved. You can now create exams using this document.
+                  Questions have been generated and saved. You can now create quizzes using this document.
                 </p>
               </div>
             </div>

@@ -266,7 +266,7 @@ export default function HealthPanel() {
                 <div>
                   <h4 className="font-semibold text-blue-900 mb-1">System Status: Optimal</h4>
                   <p className="text-sm text-blue-700">
-                    All services are functioning correctly. The exam system is ready for use.
+                    All services are functioning correctly. The Quiz system is ready for use.
                   </p>
                 </div>
               </div>

@@ -138,7 +138,7 @@ export default function TeacherDashboard() {
               }
             }
           } catch (err) {
-            console.log('Could not fetch results for exam', exam.id);
+            console.log('Could not fetch results for Quiz', exam.id);
           }
         }
       }
@@ -172,7 +172,7 @@ export default function TeacherDashboard() {
       {
         id: '1',
         type: 'exam_completed',
-        message: 'Student completed "Math Final Exam"',
+        message: 'Student completed "Math Final Quiz"',
         time: '2 hours ago',
         icon: CheckCircle2,
         color: 'text-green-600'
@@ -180,7 +180,7 @@ export default function TeacherDashboard() {
       {
         id: '2',
         type: 'exam_created',
-        message: 'New exam "Physics Quiz" created',
+        message: 'New Quiz "Physics Quiz" created',
         time: '5 hours ago',
         icon: Plus,
         color: 'text-blue-600'
@@ -287,7 +287,7 @@ export default function TeacherDashboard() {
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Total Exams</p>
+                      <p className="text-sm font-medium text-gray-600">Total Quizzes</p>
                       <p className="text-3xl font-bold text-gray-900 mt-2">
                         {isLoadingStats ? "..." : stats.totalExams}
                       </p>
@@ -331,7 +331,7 @@ export default function TeacherDashboard() {
                         {isLoadingStats ? "..." : `${stats.completionRate}%`}
                       </p>
                       <p className="text-xs text-gray-500 mt-1">
-                        Exam completion
+                        Quiz completion
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
@@ -368,7 +368,7 @@ export default function TeacherDashboard() {
                     variant="outline"
                   >
                     <Plus className="h-4 w-4 mr-2" />
-                    Create New Exam
+                    Create New Quiz
                   </Button>
                   <Button 
                     onClick={() => handleQuickAction('results')} 
