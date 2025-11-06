@@ -120,7 +120,7 @@ export default function Register() {
           <div className="w-16 h-16 gradient-green rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg animate-pulse-slow">
             <GraduationCap className="h-10 w-10 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-gradient mb-2">Join Exam System</h1>
+          <h1 className="text-3xl font-bold text-gradient mb-2">Join ExaMetric</h1>
           <p className="text-gray-600">Create your account to get started</p>
         </div>
 
