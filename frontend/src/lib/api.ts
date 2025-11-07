@@ -226,7 +226,7 @@ async getCurrentUser(): Promise<{
 
     // Store in session exams
     if (response.success && response.exam_id) {
-      const examTitle = payload.title || `Exam ${response.exam_id}`;  // ← Generate a title if not provided
+      const examTitle = payload.title || `Quiz ${response.exam_id}`;  // ← Generate a title if not provided
       schemaRegistry.addSessionExam(examTitle, response.exam_id);
     }
 
@@ -242,7 +242,7 @@ async getCurrentUser(): Promise<{
 
       if (response.success && response.exams) {
         return response.exams.map((exam: any) => ({
-          title: exam.title || `Exam ${exam.id}`,
+          title: exam.title || `Quiz ${exam.id}`,
           status: "Available",
           id: exam.id,
           created_at: exam.created_at,
@@ -274,7 +274,7 @@ async getCurrentUser(): Promise<{
     if (examId) {
       return [
         {
-          title: "Shared Exam",
+          title: "Shared Quiz",
           status: "Available",
           id: examId,
           created_at: new Date().toISOString(),

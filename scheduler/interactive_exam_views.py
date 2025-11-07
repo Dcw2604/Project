@@ -637,7 +637,7 @@ class GetExamsView(APIView):
 
                 exam_list.append({
                     "id": exam.id,
-                    "title": f"Exam {exam.id}",  
+                    "title": f"Quiz {exam.id}",  
                     "document_title": exam.document.title if exam.document else "Unknown Document",
                     "total_questions": question_count,
                     "created_at": exam.created_at.isoformat(),

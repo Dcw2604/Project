@@ -111,7 +111,7 @@ export default function UploadDocument() {
       if (result.success) {
         toast({
           title: "Upload Successful! 🎉",
-          description: `Document uploaded and ${result.questions_generated} questions generated!`,
+          description: `Documents uploaded and ${result.questions_generated} questions generated!`,
         });
 
         setSelectedFile(null);
@@ -141,7 +141,7 @@ export default function UploadDocument() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Upload className="h-5 w-5 text-blue-600" />
-          Upload Document
+          Upload Documents
         </CardTitle>
         <CardDescription>
           Upload documents to automatically generate quizzes questions
@@ -168,7 +168,7 @@ export default function UploadDocument() {
                   <Upload className="h-8 w-8 text-blue-600" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  {isDragging ? 'Drop your files here' : 'Upload Document'}
+                  {isDragging ? 'Drop your files here' : 'Upload Documents'}
                 </h3>
                 <p className="text-sm text-gray-600 mb-4">
                   Drag and drop your files here, or click to browse
@@ -249,7 +249,7 @@ export default function UploadDocument() {
                 <div className="flex-1">
                   <h4 className="font-semibold text-blue-900 mb-1">Ready to Process</h4>
                   <p className="text-sm text-blue-800">
-                    Your documents will be analyzed by AI to automatically generate quizzes questions
+                    Your Documents will be analyzed by AI to automatically generate quizzes questions
                     across different difficulty levels.
                   </p>
                 </div>
@@ -266,7 +266,7 @@ export default function UploadDocument() {
             {uploadMutation.isPending ? (
               <>
                 <div className="spinner w-5 h-5 border-2 mr-2"></div>
-                Processing Document...
+                Processing Documents...
               </>
             ) : (
               <>
@@ -280,7 +280,7 @@ export default function UploadDocument() {
           {uploadMutation.isPending && (
             <div className="space-y-2 animate-fade-in">
               <div className="flex items-center justify-between text-sm text-gray-600">
-                <span>Analyzing document...</span>
+                <span>Analyzing Documents...</span>
                 <span className="animate-pulse">Processing</span>
               </div>
               <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -313,7 +313,7 @@ export default function UploadDocument() {
               <div>
                 <h4 className="font-semibold text-green-900 mb-1">Success!</h4>
                 <p className="text-sm text-green-700">
-                  Questions have been generated and saved. You can now create quizzes using this document.
+                  Questions have been generated and saved. You can now create quizzes using this Documents.
                 </p>
               </div>
             </div>

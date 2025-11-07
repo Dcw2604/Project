@@ -42,7 +42,7 @@ export default function CreateExam() {
     if (!formData.documentId) {
       toast({
         title: "Validation Error",
-        description: "Please select a document",
+        description: "Please select the documents",
         variant: "destructive",
       });
       return;
@@ -91,7 +91,7 @@ export default function CreateExam() {
           {/* Document Selection */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-700">Step 1: Select Document</h3>
+              <h3 className="text-sm font-semibold text-gray-700">Step 1: Select documents</h3>
               {formData.documentId && (
                 <CheckCircle2 className="h-5 w-5 text-green-600 animate-scale-in" />
               )}
@@ -218,7 +218,7 @@ export default function CreateExam() {
           {/* Help Text */}
           {!formData.documentId && (
             <p className="text-center text-sm text-gray-500 animate-fade-in">
-              Select a document to get started
+              Select the documents to get started
             </p>
           )}
         </form>
